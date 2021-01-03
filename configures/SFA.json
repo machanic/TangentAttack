@@ -1,0 +1,14 @@
+
+{"CIFAR-10": {
+       "epsilon": 0.031372
+},
+    "CIFAR-100": {
+      "epsilon": 0.031372
+  },
+  "TinyImageNet": {
+      "epsilon": 0.031372
+  },
+    "ImageNet": {
+     "epsilon": 0.05
+    }
+}

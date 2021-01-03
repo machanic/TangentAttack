@@ -18,8 +18,9 @@ from dataset.dataset_loader_maker import DataLoaderMaker
 from models.standard_model import StandardModel
 from models.defensive_model import DefensiveModel
 from dataset.target_class_dataset import ImageNetDataset,CIFAR100Dataset,CIFAR10Dataset
+from airdrop_attack.utils import calculate_projection_of_x_original
 
-class HotSkipJumpAttack(object):
+class AirAttack(object):
     def __init__(self, model, dataset,  clip_min, clip_max, height, width, channels, norm, epsilon, iterations=40, gamma=1.0, stepsize_search='geometric_progression',
                  max_num_evals=1e4, init_num_evals=100, maximum_queries=10000):
         """
@@ -288,7 +289,10 @@ class HotSkipJumpAttack(object):
 
         while not phi(epsilon, num_evals):  # 只要没有成功，就缩小epsilon
             epsilon /= 2.0
+
         return epsilon, num_evals.item()
+
+
 
     def compute_distance(self, x_ori, x_pert, norm='l2'):
         # Compute the distance between two images.
@@ -296,6 +300,20 @@ class HotSkipJumpAttack(object):
             return torch.norm(x_ori - x_pert,p=2).item()
         elif norm == 'linf':
             return torch.max(torch.abs(x_ori - x_pert)).item()
+
+    def find_airdrop_point(self, x_original, x_perturbed, normal_vector, true_labels, target_labels):
+        # x_perturbed:直升飞机起飞的点
+        air_point = calculate_projection_of_x_original(x_original.view(-1), x_perturbed.view(-1), normal_vector.view(-1))
+        air_point = air_point.view_as(x_original)
+        success = self.decision_function(air_point[None], true_labels, target_labels)
+        if bool(success[0].item()): # drop
+            perturbed, dist_post_update, num_eval = self.binary_search_batch(x_original, air_point[None], true_labels,
+                                                                             target_labels)
+            return perturbed, dist_post_update, num_eval + 1
+        else:  # x_perturbed 肯定是攻击成功的， air_point是攻击失败的。
+            perturbed, dist_post_update, num_eval = self.binary_search_batch(air_point, x_perturbed[None], true_labels,
+                                                                             target_labels)
+            return perturbed, dist_post_update, num_eval + 1
 
 
 
@@ -354,10 +372,9 @@ class HotSkipJumpAttack(object):
                 query += num_evals
                 # Update the sample.
                 perturbed = torch.clamp(perturbed + epsilon * update, self.clip_min, self.clip_max)
+                perturbed, dist_post_update, num_eval = self.find_airdrop_point(images, perturbed, update, true_labels, target_labels)
                 # Binary search to return to the boundary.
-                # log.info("before geometric_progression binary_search_batch")
-                perturbed, dist_post_update, num_eval = self.binary_search_batch(images, perturbed[None], true_labels, target_labels)
-                # log.info("after geometric_progression binary_search_batch")
+                # perturbed, dist_post_update, num_eval = self.binary_search_batch(images, perturbed[None], true_labels, target_labels)
                 query += num_eval
                 dist =  torch.norm((perturbed - images).view(batch_size, -1), self.ord, 1)
                 working_ind = torch.nonzero(dist > self.epsilon).view(-1)
@@ -450,9 +467,9 @@ class HotSkipJumpAttack(object):
         log.info('Saving results to {}'.format(result_dump_path))
         meta_info_dict = {"avg_correct": self.correct_all.mean().item(),
                           "avg_not_done": self.not_done_all[self.correct_all.byte()].mean().item(),
-                          # "mean_query": self.success_query_all[self.success_all.byte()].mean().item(),
-                          # "median_query": self.success_query_all[self.success_all.byte()].median().item(),
-                          # "max_query": self.success_query_all[self.success_all.byte()].max().item(),
+                          "mean_query": self.success_query_all[self.success_all.byte()].mean().item(),
+                          "median_query": self.success_query_all[self.success_all.byte()].median().item(),
+                          "max_query": self.success_query_all[self.success_all.byte()].max().item(),
                           "correct_all": self.correct_all.detach().cpu().numpy().astype(np.int32).tolist(),
                           "not_done_all": self.not_done_all.detach().cpu().numpy().astype(np.int32).tolist(),
                           "success_all":self.success_all.detach().cpu().numpy().astype(np.int32).tolist(),
@@ -469,9 +486,9 @@ class HotSkipJumpAttack(object):
 def get_exp_dir_name(dataset,  norm, targeted, target_type, args):
     target_str = "untargeted" if not targeted else "targeted_{}".format(target_type)
     if args.attack_defense:
-        dirname = 'HSJA_on_defensive_model-{}-{}-{}'.format(dataset,  norm, target_str)
+        dirname = 'airdrop_attack_on_defensive_model-{}-{}-{}'.format(dataset,  norm, target_str)
     else:
-        dirname = 'HSJA-{}-{}-{}'.format(dataset, norm, target_str)
+        dirname = 'airdrop_attack-{}-{}-{}'.format(dataset, norm, target_str)
     return dirname
 
 def print_args(args):
@@ -553,31 +570,6 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     if args.all_archs:
         archs = MODELS_TEST_STANDARD[args.dataset]
-        # if args.dataset == "CIFAR-10" or args.dataset == "CIFAR-100":
-        #     for arch in MODELS_TEST_STANDARD[args.dataset]:
-        #         test_model_path = "{}/train_pytorch_model/real_image_model/{}-pretrained/{}/checkpoint.pth.tar".format(
-        #             PY_ROOT,
-        #             args.dataset, arch)
-        #         if os.path.exists(test_model_path):
-        #             archs.append(arch)
-        #         else:
-        #             log.info(test_model_path + " does not exists!")
-        # elif args.dataset == "TinyImageNet":
-        #     for arch in MODELS_TEST_STANDARD[args.dataset]:
-        #         test_model_list_path = "{root}/train_pytorch_model/real_image_model/{dataset}@{arch}*.pth.tar".format(
-        #             root=PY_ROOT, dataset=args.dataset, arch=arch)
-        #         test_model_path = list(glob.glob(test_model_list_path))
-        #         if test_model_path and os.path.exists(test_model_path[0]):
-        #             archs.append(arch)
-        # else:
-        #     for arch in MODELS_TEST_STANDARD[args.dataset]:
-        #         test_model_list_path = "{}/train_pytorch_model/real_image_model/{}-pretrained/checkpoints/{}*.pth".format(
-        #             PY_ROOT,
-        #             args.dataset, arch)
-        #         test_model_list_path = list(glob.glob(test_model_list_path))
-        #         if len(test_model_list_path) == 0:  # this arch does not exists in args.dataset
-        #             continue
-        #         archs.append(arch)
     else:
         assert args.arch is not None
         archs = [args.arch]
@@ -601,7 +593,7 @@ if __name__ == "__main__":
             model = StandardModel(args.dataset, arch, no_grad=True)
         model.cuda()
         model.eval()
-        attacker = HotSkipJumpAttack(model, args.dataset, 0, 1.0, model.input_size[-2], model.input_size[-1], IN_CHANNELS[args.dataset],
+        attacker = AirAttack(model, args.dataset, 0, 1.0, model.input_size[-2], model.input_size[-1], IN_CHANNELS[args.dataset],
                                      args.norm, args.epsilon, args.num_iterations, gamma=args.gamma, stepsize_search = args.stepsize_search,
                                      max_num_evals=1e4, init_num_evals = 100, maximum_queries=args.max_queries)
         attacker.attack_all_images(args, arch, model, save_result_path)

@@ -108,15 +108,15 @@ class GeoDA(object):
         return predict_label != true_label
 
     def find_random_adversarial(self, image, true_label):
-        num_calls = 1
+        num_calls = 0
         step = 0.02
-        perturbed = image
-
-        while not self.is_adversarial(perturbed, true_label):
+        while True:
             pert = torch.randn([1, self.channels, self.height, self.width])
             perturbed = image + num_calls * step * pert
             perturbed = clip_image_values(perturbed, self.clip_min, self.clip_max)
             num_calls += 1
+            if self.is_adversarial(perturbed, true_label):
+                break
 
         return perturbed, num_calls
 
@@ -187,22 +187,19 @@ class GeoDA(object):
 
     def go_to_boundary(self, x_0, true_label, grad):
         epsilon = 5
-        num_calls = 1 # while not is adv already 1
-        perturbed = x_0
+        num_calls = 0
 
         if self.norm == 'l1' or self.norm == 'l2':
             grads = grad
 
         if self.norm == 'linf':
-            grads = torch.sign(grad) / torch.norm(grad,p=2)
-
-        while not self.is_adversarial(perturbed, true_label):
-
+            grads = torch.sign(grad) / torch.norm(grad)
+        while True:
             perturbed = x_0 + (num_calls * epsilon * grads[0])
             perturbed = clip_image_values(perturbed, self.clip_min, self.clip_max)
-
             num_calls += 1
-
+            if self.is_adversarial(perturbed, true_label):
+                break
             if num_calls > 100:
                 log.info('falied ... ')
                 break
@@ -422,10 +419,10 @@ class GeoDA(object):
         log.info('{} is attacked finished ({} images)'.format(arch_name, self.total_images))
         log.info('Saving results to {}'.format(result_dump_path))
         meta_info_dict = {"avg_correct": self.correct_all.mean().item(),
-                          "avg_not_done": self.not_done_all[self.correct_all.byte()].mean().item(),
-                          # "mean_query": self.success_query_all[self.success_all.byte()].mean().item(),
-                          # "median_query": self.success_query_all[self.success_all.byte()].median().item(),
-                          # "max_query": self.success_query_all[self.success_all.byte()].max().item(),
+                          "avg_not_done": self.not_done_all[self.correct_all.bool()].mean().item(),
+                          "mean_query": self.success_query_all[self.success_all.bool()].mean().item(),
+                          "median_query": self.success_query_all[self.success_all.bool()].median().item(),
+                          "max_query": self.success_query_all[self.success_all.bool()].max().item(),
                           "correct_all": self.correct_all.detach().cpu().numpy().astype(np.int32).tolist(),
                           "not_done_all": self.not_done_all.detach().cpu().numpy().astype(np.int32).tolist(),
                           "query_all": self.query_all.detach().cpu().numpy().astype(np.int32).tolist(),
@@ -479,13 +476,13 @@ if __name__ == "__main__":
     parser.add_argument('--attack_defense',action="store_true")
     parser.add_argument("--num_iterations",type=int,default=64)
     parser.add_argument('--defense_model',type=str, default=None)
+    parser.add_argument('--sub_dim', type=int)
     parser.add_argument('--max_queries',type=int, default=10000)
 
     args = parser.parse_args()
     assert args.batch_size == 1, "GeoDA only supports mini-batch size equals 1!"
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
-    os.environ["TORCH_HOME"] = "/home1/machen/.cache/torch/pretrainedmodels"
 
     if args.json_config:
         # If a json file is given, use the JSON file as the base, and then update it with args
@@ -545,7 +542,7 @@ if __name__ == "__main__":
         model.cuda()
         model.eval()
         attacker = GeoDA(model, args.dataset, 0, 1.0, model.input_size[-2], model.input_size[-1], IN_CHANNELS[args.dataset],
-                         args.norm,args.epsilon, search_space='sub',sub_dim=75,max_queries=args.max_queries,batch_size=args.batch_size)
+                         args.norm,args.epsilon, search_space='sub',sub_dim=args.sub_dim,max_queries=args.max_queries,batch_size=args.batch_size)
         attacker.attack_all_images(args, arch, save_result_path)
         model.cpu()
 

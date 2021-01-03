@@ -316,7 +316,6 @@ class CIFAR10IDDataset(torch.utils.data.Dataset):
         import tarfile
 
         if self._check_integrity():
-            print('Files already downloaded and verified')
             return
 
         root_dirname = self.root_dirname

@@ -18,7 +18,8 @@ def dct(x, y, v, u, n):
 
 @jit
 def generate_2d_dct_basis(root_path, image_height, sub_dim=75):
-    path = "{}/attacked_images/ImageNet/2d_dct_basis_height_{}_subdim_{}.npy".format(root_path, image_height, sub_dim)
+    path = "{}/attacked_images/GeoDA/2d_dct_basis_height_{}_subdim_{}.npy".format(root_path, image_height, sub_dim)
+    os.makedirs(os.path.dirname(path),exist_ok=True)
     if os.path.exists(path):
         return np.load(path)
     n = image_height  # Assume square image, so we don't have different xres and yres

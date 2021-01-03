@@ -18,10 +18,12 @@ from dataset.dataset_loader_maker import DataLoaderMaker
 from models.standard_model import StandardModel
 from models.defensive_model import DefensiveModel
 from dataset.target_class_dataset import ImageNetDataset,CIFAR100Dataset,CIFAR10Dataset
+from tangent_attack.scipy_find_tangent_point import solve_tangent_point
+from tangent_attack.find_tangent_solution_analytical_solution import TangentFinder, calculate_projection_of_x_original
 
-class HotSkipJumpAttack(object):
+class TangentAttack(object):
     def __init__(self, model, dataset,  clip_min, clip_max, height, width, channels, norm, epsilon, iterations=40, gamma=1.0, stepsize_search='geometric_progression',
-                 max_num_evals=1e4, init_num_evals=100, maximum_queries=10000):
+                 max_num_evals=1e4, init_num_evals=100, maximum_queries=10000, verify_tangent_point=False):
         """
         :param clip_min: lower bound of the image.
         :param clip_max: upper bound of the image.
@@ -53,6 +55,7 @@ class HotSkipJumpAttack(object):
         self.num_iterations = iterations
         self.gamma = gamma
         self.stepsize_search = stepsize_search
+        self.verify_tangent_point = verify_tangent_point
 
         self.maximum_queries = maximum_queries
         self.dataset_name = dataset
@@ -67,7 +70,7 @@ class HotSkipJumpAttack(object):
         self.success_query_all = torch.zeros_like(self.query_all)
         self.distortion_with_max_queries_all = torch.zeros_like(self.query_all)
 
-    def get_image_of_target_class(self,dataset_name, target_labels, target_model):
+    def get_image_of_target_class(self,dataset_name, target_labels):
 
         images = []
         for label in target_labels:  # length of target_labels is 1
@@ -81,22 +84,22 @@ class HotSkipJumpAttack(object):
             index = np.random.randint(0, len(dataset))
             image, true_label = dataset[index]
             image = image.unsqueeze(0)
-            if dataset_name == "ImageNet" and target_model.input_size[-1] != 299:
+            if dataset_name == "ImageNet" and self.model.input_size[-1] != 299:
                 image = F.interpolate(image,
-                                       size=(target_model.input_size[-2], target_model.input_size[-1]), mode='bilinear',
+                                       size=(self.model.input_size[-2], self.model.input_size[-1]), mode='bilinear',
                                        align_corners=False)
             with torch.no_grad():
-                logits = target_model(image.cuda())
+                logits = self.model(image.cuda())
             while logits.max(1)[1].item() != label.item():
                 index = np.random.randint(0, len(dataset))
                 image, true_label = dataset[index]
                 image = image.unsqueeze(0)
-                if dataset_name == "ImageNet" and target_model.input_size[-1] != 299:
+                if dataset_name == "ImageNet" and self.model.input_size[-1] != 299:
                     image = F.interpolate(image,
-                                       size=(target_model.input_size[-2], target_model.input_size[-1]), mode='bilinear',
+                                       size=(self.model.input_size[-2], self.model.input_size[-1]), mode='bilinear',
                                        align_corners=False)
                 with torch.no_grad():
-                    logits = target_model(image.cuda())
+                    logits = self.model(image.cuda())
             assert true_label == label.item()
             images.append(torch.squeeze(image))
         return torch.stack(images) # B,C,H,W
@@ -135,7 +138,7 @@ class HotSkipJumpAttack(object):
                                                                 size=target_labels[invalid_target_index].size()).long()
                             invalid_target_index = target_labels.eq(true_labels)
 
-                    initialization = self.get_image_of_target_class(self.dataset_name,target_labels, self.model).squeeze()
+                    initialization = self.get_image_of_target_class(self.dataset_name,target_labels).squeeze()
                     return initialization, 1
                 # assert num_eval < 1e4, "Initialization failed! Use a misclassified image as `target_image`"
             # Binary search to minimize l2 distance to original image.
@@ -272,7 +275,7 @@ class HotSkipJumpAttack(object):
 
         return gradf
 
-    def geometric_progression_for_stepsize(self, x, true_labels, target_labels, update, dist, cur_iter):
+    def geometric_progression_for_HSJA(self, x, true_labels, target_labels, update, dist, cur_iter):
         """
         Geometric progression to search for stepsize.
         Keep decreasing stepsize by half until reaching
@@ -288,7 +291,47 @@ class HotSkipJumpAttack(object):
 
         while not phi(epsilon, num_evals):  # 只要没有成功，就缩小epsilon
             epsilon /= 2.0
-        return epsilon, num_evals.item()
+        perturbed = torch.clamp(x + epsilon * update, self.clip_min, self.clip_max)
+        return perturbed
+
+
+    def geometric_progression_for_tangent_point(self, x_original, x_boundary, normal_vector, true_labels, target_labels, dist, cur_iter):
+        """
+        Geometric progression to search for stepsize.
+        Keep decreasing stepsize by half until reaching
+        the desired side of the boundary,
+        """
+        radius = dist.item() / np.sqrt(cur_iter)
+        num_evals = 0
+        while True:
+            # x_projection = calculate_projection_of_x_original(x_original.view(-1),x_boundary.view(-1),normal_vector.view(-1))
+            # if torch.norm(x_projection.view(-1) - x_boundary.view(-1),p=self.ord).item() <= radius:
+            #     log.info("projection point lies inside ball! reduce radius from {:.3f} to {:.3f}".format(radius, radius/2.0))
+            #     radius /= 2.0
+            #     continue
+            # else:
+            tangent_finder = TangentFinder(x_original.view(-1), x_boundary.view(-1), radius, normal_vector.view(-1), norm="l2")
+            tangent_point = tangent_finder.compute_tangent_point()
+            if self.verify_tangent_point:
+                log.info("verifying tagent point")
+                another_tangent_point = solve_tangent_point(x_original.view(-1).detach().cpu().numpy(), x_boundary.view(-1).detach().cpu().numpy(),
+                                    normal_vector.view(-1).detach().cpu().numpy(), radius, clip_min=self.clip_min,clip_max=self.clip_max)
+                if isinstance(another_tangent_point, np.ndarray):
+                    another_tangent_point = torch.from_numpy(another_tangent_point).type_as(tangent_point).to(tangent_point.device)
+                difference = tangent_point - another_tangent_point
+                log.info("Difference max: {:.4f} mean: {:.4f} sum: {:.4f} L2 norm: {:.4f}".format(difference.max().item(),
+                                                                                                  difference.mean().item(),
+                                                                                                  difference.sum().item(),
+                                                                                                  torch.norm(difference)))
+            tangent_point = tangent_point.view_as(x_original)
+            success = self.decision_function(tangent_point[None], true_labels, target_labels)
+            num_evals += 1
+            if bool(success[0].item()):
+               break
+            radius /= 2.0
+
+        return tangent_point, num_evals
+
 
     def compute_distance(self, x_ori, x_pert, norm='l2'):
         # Compute the distance between two images.
@@ -343,17 +386,16 @@ class HotSkipJumpAttack(object):
             # approximate gradient
             gradf = self.approximate_gradient(perturbed, true_labels, target_labels, num_evals, delta)
             query += num_evals
-            if self.norm == "linf":
-                update = torch.sign(gradf)
-            else:
-                update = gradf
             # search step size.
             if self.stepsize_search == 'geometric_progression':
                 # find step size.
-                epsilon, num_evals = self.geometric_progression_for_stepsize(perturbed, true_labels, target_labels, update, dist, cur_iter)
+                perturbed_Tagent, num_evals = self.geometric_progression_for_tangent_point(images, perturbed, gradf,true_labels, target_labels, dist, cur_iter)
                 query += num_evals
-                # Update the sample.
-                perturbed = torch.clamp(perturbed + epsilon * update, self.clip_min, self.clip_max)
+                # perturbed_HSJA = self.geometric_progression_for_HSJA(perturbed, true_labels, target_labels, gradf, dist, cur_iter)
+                # dist_tangent = torch.norm((perturbed_Tagent - images).view(batch_size, -1), self.ord, 1).item()
+                # dist_HSJA = torch.norm((perturbed_HSJA - images).view(batch_size, -1), self.ord, 1).item()
+                # log.info("dist of tangent: {:.4f}, dist of HSJA:{:.4f}, tangent < HSJA: {}".format(dist_tangent, dist_HSJA, dist_tangent < dist_HSJA))
+                perturbed = perturbed_Tagent
                 # Binary search to return to the boundary.
                 # log.info("before geometric_progression binary_search_batch")
                 perturbed, dist_post_update, num_eval = self.binary_search_batch(images, perturbed[None], true_labels, target_labels)
@@ -367,6 +409,10 @@ class HotSkipJumpAttack(object):
                         inside_batch_index].item()
             elif self.stepsize_search == "grid_search":
                 # Grid search for stepsize.
+                if self.norm == "linf":
+                    update = torch.sign(gradf)
+                else:
+                    update = gradf
                 epsilons = torch.logspace(-4, 0, steps=20) * dist
                 epsilons_shape = [20] + len(self.shape) * [1]
                 perturbeds = perturbed + epsilons.view(epsilons_shape) * update
@@ -394,15 +440,15 @@ class HotSkipJumpAttack(object):
         success_stop_queries = torch.clamp(success_stop_queries, 0, self.maximum_queries)
         return perturbed, query, success_stop_queries, dist, (dist <= self.epsilon)
 
-    def attack_all_images(self, args, arch_name, target_model, result_dump_path):
+    def attack_all_images(self, args, arch_name,  result_dump_path):
 
         for batch_index, (images, true_labels) in enumerate(self.dataset_loader):
-            if args.dataset == "ImageNet" and target_model.input_size[-1] != 299:
+            if args.dataset == "ImageNet" and self.model.input_size[-1] != 299:
                 images = F.interpolate(images,
-                                       size=(target_model.input_size[-2], target_model.input_size[-1]), mode='bilinear',
+                                       size=(self.model.input_size[-2], self.model.input_size[-1]), mode='bilinear',
                                        align_corners=False)
             with torch.no_grad():
-                logit = target_model(images.cuda())
+                logit = self.model(images.cuda())
             pred = logit.argmax(dim=1)
             correct = pred.eq(true_labels.cuda()).float()  # shape = (batch_size,)
             selected = torch.arange(batch_index * args.batch_size, min((batch_index + 1) * args.batch_size, self.total_images))
@@ -422,7 +468,7 @@ class HotSkipJumpAttack(object):
                 else:
                     raise NotImplementedError('Unknown target_type: {}'.format(args.target_type))
 
-                target_images = self.get_image_of_target_class(self.dataset_name,target_labels, target_model)
+                target_images = self.get_image_of_target_class(self.dataset_name,target_labels)
             else:
                 target_labels = None
                 target_images = None
@@ -430,7 +476,7 @@ class HotSkipJumpAttack(object):
             adv_images, query, success_query, distortion_with_max_queries, success_epsilon = self.attack(batch_index, images, target_images, true_labels, target_labels)
             distortion_with_max_queries = distortion_with_max_queries.detach().cpu()
             with torch.no_grad():
-                adv_logit = target_model(adv_images.cuda())
+                adv_logit = self.model(adv_images.cuda())
             adv_pred = adv_logit.argmax(dim=1)
             ## Continue query count
             not_done = correct.clone()
@@ -449,10 +495,10 @@ class HotSkipJumpAttack(object):
         log.info('{} is attacked finished ({} images)'.format(arch_name, self.total_images))
         log.info('Saving results to {}'.format(result_dump_path))
         meta_info_dict = {"avg_correct": self.correct_all.mean().item(),
-                          "avg_not_done": self.not_done_all[self.correct_all.byte()].mean().item(),
-                          # "mean_query": self.success_query_all[self.success_all.byte()].mean().item(),
-                          # "median_query": self.success_query_all[self.success_all.byte()].median().item(),
-                          # "max_query": self.success_query_all[self.success_all.byte()].max().item(),
+                          "avg_not_done": self.not_done_all[self.correct_all.bool()].mean().item(),
+                          "mean_query": self.success_query_all[self.success_all.bool()].mean().item(),
+                          "median_query": self.success_query_all[self.success_all.bool()].median().item(),
+                          "max_query": self.success_query_all[self.success_all.bool()].max().item(),
                           "correct_all": self.correct_all.detach().cpu().numpy().astype(np.int32).tolist(),
                           "not_done_all": self.not_done_all.detach().cpu().numpy().astype(np.int32).tolist(),
                           "success_all":self.success_all.detach().cpu().numpy().astype(np.int32).tolist(),
@@ -469,9 +515,9 @@ class HotSkipJumpAttack(object):
 def get_exp_dir_name(dataset,  norm, targeted, target_type, args):
     target_str = "untargeted" if not targeted else "targeted_{}".format(target_type)
     if args.attack_defense:
-        dirname = 'HSJA_on_defensive_model-{}-{}-{}'.format(dataset,  norm, target_str)
+        dirname = 'tangent_attack_on_defensive_model-{}-{}-{}'.format(dataset,  norm, target_str)
     else:
-        dirname = 'HSJA-{}-{}-{}'.format(dataset, norm, target_str)
+        dirname = 'tangent_attack-{}-{}-{}'.format(dataset, norm, target_str)
     return dirname
 
 def print_args(args):
@@ -498,6 +544,7 @@ if __name__ == "__main__":
     parser.add_argument('--dataset', type=str, required=True,
                choices=['CIFAR-10', 'CIFAR-100', 'ImageNet', "FashionMNIST", "MNIST", "TinyImageNet"], help='which dataset to use')
     parser.add_argument('--arch', default=None, type=str, help='network architecture')
+    parser.add_argument('--verify-tangent',action='store_true')
     parser.add_argument('--all_archs', action="store_true")
     parser.add_argument('--targeted', action="store_true")
     parser.add_argument('--target_type',type=str, default='increment', choices=['random', 'least_likely',"increment"])
@@ -511,7 +558,7 @@ if __name__ == "__main__":
     parser.add_argument('--gamma',type=float)
 
     args = parser.parse_args()
-    assert args.batch_size == 1, "HSJA only supports mini-batch size equals 1!"
+    assert args.batch_size == 1, "Tangent attack only supports mini-batch size equals 1!"
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     args_dict = None
@@ -553,31 +600,6 @@ if __name__ == "__main__":
     torch.manual_seed(args.seed)
     if args.all_archs:
         archs = MODELS_TEST_STANDARD[args.dataset]
-        # if args.dataset == "CIFAR-10" or args.dataset == "CIFAR-100":
-        #     for arch in MODELS_TEST_STANDARD[args.dataset]:
-        #         test_model_path = "{}/train_pytorch_model/real_image_model/{}-pretrained/{}/checkpoint.pth.tar".format(
-        #             PY_ROOT,
-        #             args.dataset, arch)
-        #         if os.path.exists(test_model_path):
-        #             archs.append(arch)
-        #         else:
-        #             log.info(test_model_path + " does not exists!")
-        # elif args.dataset == "TinyImageNet":
-        #     for arch in MODELS_TEST_STANDARD[args.dataset]:
-        #         test_model_list_path = "{root}/train_pytorch_model/real_image_model/{dataset}@{arch}*.pth.tar".format(
-        #             root=PY_ROOT, dataset=args.dataset, arch=arch)
-        #         test_model_path = list(glob.glob(test_model_list_path))
-        #         if test_model_path and os.path.exists(test_model_path[0]):
-        #             archs.append(arch)
-        # else:
-        #     for arch in MODELS_TEST_STANDARD[args.dataset]:
-        #         test_model_list_path = "{}/train_pytorch_model/real_image_model/{}-pretrained/checkpoints/{}*.pth".format(
-        #             PY_ROOT,
-        #             args.dataset, arch)
-        #         test_model_list_path = list(glob.glob(test_model_list_path))
-        #         if len(test_model_list_path) == 0:  # this arch does not exists in args.dataset
-        #             continue
-        #         archs.append(arch)
     else:
         assert args.arch is not None
         archs = [args.arch]
@@ -601,8 +623,9 @@ if __name__ == "__main__":
             model = StandardModel(args.dataset, arch, no_grad=True)
         model.cuda()
         model.eval()
-        attacker = HotSkipJumpAttack(model, args.dataset, 0, 1.0, model.input_size[-2], model.input_size[-1], IN_CHANNELS[args.dataset],
+        attacker = TangentAttack(model, args.dataset, 0, 1.0, model.input_size[-2], model.input_size[-1], IN_CHANNELS[args.dataset],
                                      args.norm, args.epsilon, args.num_iterations, gamma=args.gamma, stepsize_search = args.stepsize_search,
-                                     max_num_evals=1e4, init_num_evals = 100, maximum_queries=args.max_queries)
-        attacker.attack_all_images(args, arch, model, save_result_path)
+                                     max_num_evals=1e4, init_num_evals = 100, maximum_queries=args.max_queries,
+                                     verify_tangent_point=args.verify_tangent)
+        attacker.attack_all_images(args, arch,  save_result_path)
         model.cpu()
