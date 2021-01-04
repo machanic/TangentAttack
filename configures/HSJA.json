@@ -1,0 +1,42 @@
+
+{"CIFAR-10": {
+      "l2":{
+          "epsilon": 1.0,
+          "gamma": 1.0
+        },
+      "linf": {
+          "epsilon": 0.031372,
+          "gamma": 100
+      }
+  },
+    "CIFAR-100": {
+      "l2":{
+          "epsilon": 1.0,
+        "gamma": 1.0
+        },
+      "linf": {
+          "epsilon": 0.031372,
+        "gamma":100
+      }
+  },
+  "TinyImageNet": {
+      "l2":{
+          "epsilon": 2.0,
+        "gamma": 1.0
+        },
+      "linf": {
+          "epsilon": 0.031372,
+        "gamma":100
+      }
+  },
+    "ImageNet": {
+        "l2":{
+            "epsilon": 10.0,
+          "gamma": 1000
+        },
+        "linf": {
+            "epsilon": 0.05,
+          "gamma":10000
+        }
+    }
+}

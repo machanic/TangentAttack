@@ -1,13 +1,15 @@
 import argparse
 import os
 import sys
+
+
 sys.path.append(os.getcwd())
 import json
 import random
 import sys
 from collections import defaultdict, OrderedDict
 from types import SimpleNamespace
-
+from dataset.target_class_dataset import ImageNetDataset, CIFAR10Dataset, CIFAR100Dataset
 import torch.nn as nn
 import torchvision.datasets as dsets
 import glog as log
@@ -18,7 +20,7 @@ import numpy as np
 import torch
 import os
 import os.path as osp
-from config import CLASS_NUM, MODELS_TEST_STANDARD, IN_CHANNELS, PY_ROOT
+from config import CLASS_NUM, MODELS_TEST_STANDARD, IN_CHANNELS, PY_ROOT, IMAGE_DATA_ROOT
 from dataset.dataset_loader_maker import DataLoaderMaker
 from models.defensive_model import DefensiveModel
 from models.standard_model import StandardModel
@@ -71,7 +73,9 @@ class GeoDA(object):
         self.grad_estimator_batch_size = grad_estimator_batch_size # batch size for GeoDA
         self.sigma = sigma
         self.ord = np.inf if self.norm == "linf" else 2
+        self.dataset = dataset
         self.dataset_loader = DataLoaderMaker.get_test_attacked_data(dataset, batch_size)
+        self.batch_size = batch_size
         self.total_images = len(self.dataset_loader.dataset)
 
         self.query_all = torch.zeros(self.total_images)
@@ -81,6 +85,37 @@ class GeoDA(object):
         self.success_all = torch.zeros_like(self.query_all)
         self.success_query_all = torch.zeros_like(self.query_all)
         self.distortion_with_max_queries_all = torch.zeros_like(self.query_all)
+
+    def get_image_of_target_class(self,dataset_name, target_label, target_model):
+
+        if dataset_name == "ImageNet":
+            dataset = ImageNetDataset(IMAGE_DATA_ROOT[dataset_name],target_label, "validation")
+        elif dataset_name == "CIFAR-10":
+            dataset = CIFAR10Dataset(IMAGE_DATA_ROOT[dataset_name], target_label, "validation")
+        elif dataset_name=="CIFAR-100":
+            dataset = CIFAR100Dataset(IMAGE_DATA_ROOT[dataset_name], target_label, "validation")
+
+        index = np.random.randint(0, len(dataset))
+        image, true_label = dataset[index]
+        image = image.unsqueeze(0)
+        if dataset_name == "ImageNet" and target_model.input_size[-1] != 299:
+            image = F.interpolate(image,
+                                   size=(target_model.input_size[-2], target_model.input_size[-1]), mode='bilinear',
+                                   align_corners=False)
+        with torch.no_grad():
+            logits = target_model(image.cuda())
+        while logits.max(1)[1].item() != target_label:
+            index = np.random.randint(0, len(dataset))
+            image, true_label = dataset[index]
+            image = image.unsqueeze(0)
+            if dataset_name == "ImageNet" and target_model.input_size[-1] != 299:
+                image = F.interpolate(image,
+                                   size=(target_model.input_size[-2], target_model.input_size[-1]), mode='bilinear',
+                                   align_corners=False)
+            with torch.no_grad():
+                logits = target_model(image.cuda())
+        assert true_label == target_label
+        return image # B,C,H,W
 
 
 
@@ -103,11 +138,14 @@ class GeoDA(object):
 
         return grad_3D_sign
 
-    def is_adversarial(self, given_image, true_label):
+    def is_adversarial(self, given_image, true_label, target_label):
         predict_label = torch.argmax(self.model(given_image.cuda())).item()
-        return predict_label != true_label
+        if target_label is None:
+            return predict_label != true_label
+        else:
+            return predict_label == target_label
 
-    def find_random_adversarial(self, image, true_label):
+    def find_random_adversarial(self, image, true_label, target_label):
         num_calls = 0
         step = 0.02
         while True:
@@ -115,13 +153,22 @@ class GeoDA(object):
             perturbed = image + num_calls * step * pert
             perturbed = clip_image_values(perturbed, self.clip_min, self.clip_max)
             num_calls += 1
-            if self.is_adversarial(perturbed, true_label):
+            if self.is_adversarial(perturbed, true_label, target_label):
                 break
+            if num_calls > 1000:
+                log.info("Initialization failed! Use a misclassified image as `target_image")
+                if target_label is None:
+                    target_label = np.random.randint(0, CLASS_NUM[self.dataset])
+                    while target_label == true_label:
+                        target_label = np.random.randint(0, CLASS_NUM[self.dataset])
+
+                perturbed = self.get_image_of_target_class(self.dataset, target_label, self.model).squeeze()
+                return perturbed, 1
 
         return perturbed, num_calls
 
 
-    def bin_search(self, x_0, x_random, true_label, tol):
+    def bin_search(self, x_0, x_random, true_label, target_label, tol):
         num_calls = 0
         adv = x_random
         cln = x_0
@@ -129,7 +176,7 @@ class GeoDA(object):
         while True:
             mid = (cln + adv) / 2.0
             num_calls += 1
-            if self.is_adversarial(mid, true_label):
+            if self.is_adversarial(mid, true_label, target_label):
                 adv = mid
             else:
                 cln = mid
@@ -137,7 +184,8 @@ class GeoDA(object):
                 break
         return adv, num_calls
 
-    def black_grad_batch(self, x_boundary, sub_basis_torch, q_max, sigma, batch_size, true_label):
+
+    def black_grad_batch(self, x_boundary, sub_basis_torch, q_max, sigma, batch_size, true_label, target_label):
         grad_tmp = []  # estimated gradients in each estimate_batch
         z = []  # sign of grad_tmp
         outs = []
@@ -162,20 +210,27 @@ class GeoDA(object):
             all_noises.append(current_batch_np)
             # noisy_boundary shape = 40,3,224,224, current_batch shape = 40,3,224,224
             noisy_boundary_tensor = torch.tensor(noisy_boundary).cuda()  # [batch_size, num_noises, C, H, W]
-
-            predict_labels = torch.argmax(self.model(noisy_boundary_tensor), 1).cpu().numpy().astype(int)
+            predict_labels = torch.argmax(self.model(noisy_boundary_tensor),1).cpu().numpy().astype(int)
             num_calls += noisy_boundary_tensor.size(0)
             outs.append(predict_labels)
         all_noise = np.concatenate(all_noises, axis=0)
         outs = np.concatenate(outs, axis=0)
 
         for i, predict_label in enumerate(outs):
-            if predict_label == true_label:
-                z.append(1)
-                grad_tmp.append(all_noise[i])
+            if target_label is not None:
+                if predict_label != target_label:
+                    z.append(1)
+                    grad_tmp.append(all_noise[i])
+                else:
+                    z.append(-1)
+                    grad_tmp.append(-all_noise[i])
             else:
-                z.append(-1)
-                grad_tmp.append(-all_noise[i])
+                if predict_label == true_label:  # predict == true label or predict != target class label
+                    z.append(1)
+                    grad_tmp.append(all_noise[i])
+                else:
+                    z.append(-1)
+                    grad_tmp.append(-all_noise[i])
 
         grad = -(1 / q_max) * sum(grad_tmp)
 
@@ -183,25 +238,46 @@ class GeoDA(object):
 
         return grad_f, sum(z), num_calls
 
+    def geometric_progression_for_stepsize(self, x_adv, true_label, target_label, grad, dist, cur_iter):
+        """
+        Geometric progression to search for stepsize.
+        Keep decreasing stepsize by half until reaching
+        the desired side of the boundary,
+        """
+        epsilon = dist.item() / np.sqrt(cur_iter)
+        num_evals = np.zeros(1)
+        if self.norm == 'l1' or self.norm == 'l2':
+            grads = grad
+        if self.norm == 'linf':
+            grads = torch.sign(grad) / torch.norm(grad)
+        def phi(epsilon, num_evals):
+            new = x_adv + epsilon * grads
+            success = self.is_adversarial(new, true_label,target_label)
+            num_evals += 1
+            return success
+
+        while not phi(epsilon, num_evals):  # 只要没有成功，就缩小epsilon
+            epsilon /= 2.0
+        perturbed = torch.clamp(x_adv + epsilon * grads, self.clip_min, self.clip_max)
+        return perturbed, num_evals.item()
 
 
-    def go_to_boundary(self, x_0, true_label, grad):
+    def go_to_boundary(self, x_0, true_label, target_label, grad):
         epsilon = 5
         num_calls = 0
 
         if self.norm == 'l1' or self.norm == 'l2':
             grads = grad
-
         if self.norm == 'linf':
             grads = torch.sign(grad) / torch.norm(grad)
         while True:
             perturbed = x_0 + (num_calls * epsilon * grads[0])
             perturbed = clip_image_values(perturbed, self.clip_min, self.clip_max)
             num_calls += 1
-            if self.is_adversarial(perturbed, true_label):
+            if self.is_adversarial(perturbed, true_label, target_label):
                 break
             if num_calls > 100:
-                log.info('falied ... ')
+                log.info('failed ... ')
                 break
         return perturbed, num_calls, epsilon * num_calls
 
@@ -212,19 +288,25 @@ class GeoDA(object):
         self.distortion_all[image_index][query] = dist
         return success_stop_queries
 
-    def attack(self, batch_idx, x_0, x_b, true_label, sub_basis_torch, q_opt, iteration):
+    def attack(self, batch_idx, x_0, x_b, true_label, target_label, sub_basis_torch, q_opt, iteration):
         q_num = 0
         grad = 0
         success_stop_queries = 0
+        x_adv = x_b
         for i in range(iteration):
             grad_oi, ratios, num_call = self.black_grad_batch(x_b, sub_basis_torch, q_opt[i], self.sigma,
-                                                    self.grad_estimator_batch_size, true_label)
+                                                    self.grad_estimator_batch_size, true_label, target_label)
             # q_num = q_num + q_opt[i]
             q_num = q_num + num_call
             grad = grad_oi + grad
-            x_adv, qs, eps = self.go_to_boundary(x_0, true_label, grad)
+            dist = torch.norm((x_adv - x_0).view(self.batch_size, -1), self.ord, 1)
+            if target_label is not None:
+                x_adv, qs = self.geometric_progression_for_stepsize(x_adv, true_label, target_label, grad, dist, cur_iter=i+1)
+            else:
+                x_adv, qs, eps = self.go_to_boundary(x_0, true_label, target_label, grad)
+
             q_num = q_num + qs
-            x_adv, bin_query = self.bin_search(x_0,x_adv,true_label, self.tol)
+            x_adv, bin_query = self.bin_search(x_0,x_adv,true_label, target_label, self.tol)
             q_num = q_num + bin_query
             success_stop_queries = self.calculate_distortion(x_adv, x_0, success_stop_queries, q_num, batch_idx)
             log.info("{}-th image, distortion: {:.4f}, query:{}, iteration:{} ".format(batch_idx, torch.norm((x_adv - x_0).view(x_adv.size(0), -1), self.ord, 1).item(), q_num, i))
@@ -334,7 +416,7 @@ class GeoDA(object):
         sub_basis = generate_2d_dct_basis(PY_ROOT, self.height,sub_dim).astype(np.float32)
         estimate_batch = self.grad_estimator_batch_size
         sub_basis_torch = torch.from_numpy(sub_basis).cuda()
-        EstNoise = SubNoise(estimate_batch, sub_basis_torch, self.channels, self.height, self.width)
+        # EstNoise = SubNoise(estimate_batch, sub_basis_torch, self.channels, self.height, self.width)
         return sub_basis_torch
 
     def attack_all_images(self, args, arch_name, result_dump_path):
@@ -365,18 +447,23 @@ class GeoDA(object):
                     target_labels = torch.fmod(true_labels + 1, CLASS_NUM[args.dataset])
                 else:
                     raise NotImplementedError('Unknown target_type: {}'.format(args.target_type))
-
+                target_label = target_labels[0].item()
             else:
                 target_labels = None
-                target_images = None
+                target_label = None
+
             true_label = true_labels[0].item()
             # log.info("before find_random_adversarial")
-            image_random, query_random_1 = self.find_random_adversarial(images, true_label)
+            if args.targeted:
+                image_random = self.get_image_of_target_class(self.dataset, target_label, self.model)
+                query_random_1 = 0
+            else:
+                image_random, query_random_1 = self.find_random_adversarial(images, true_label, None)
             # assert self.is_adversarial(image_random, true_label) == 1
             # Binary search
             # log.info("after find_random_adversarial")
             # log.info("before bin_search")
-            x_boundary, query_binsearch_2 = self.bin_search(images, image_random, true_label, self.tol)
+            x_boundary, query_binsearch_2 = self.bin_search(images, image_random, true_label, target_label, self.tol)
             x_b = x_boundary
             # log.info("after bin_search")
             # assert self.is_adversarial(x_boundary, true_label) == 1
@@ -389,10 +476,9 @@ class GeoDA(object):
             # log.info('Start: The GeoDA will be run for:' + ' Iterations = ' + str(iterate) + ', Query = ' + str(
             #     self.max_queries) + ', Norm = ' + self.norm + ', Space = ' + str(self.search_space))
             # log.info('#################################################################')
-            # log.info("before initialize_sub_basis")
 
-            # log.info("after initialize_sub_basis")
-            adv_images, query_o, gradient, success_query, distortion_with_max_queries, success_epsilon = self.attack(batch_index, images, x_b, true_labels, sub_basis_torch, q_opt_iter, iterate)
+            adv_images, query_o, gradient, success_query, distortion_with_max_queries, success_epsilon = self.attack(batch_index, images, x_b, true_label,target_label,
+                                                                                                                     sub_basis_torch, q_opt_iter, iterate)
             query = tot_query_rnd + query_o
 
             query = torch.tensor([query])

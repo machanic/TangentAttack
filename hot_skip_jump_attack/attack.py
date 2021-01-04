@@ -313,7 +313,7 @@ class HotSkipJumpAttack(object):
         perturbed, num_eval = self.initialize(images, target_images, true_labels, target_labels)
         # log.info("after initialize")
         query += num_eval
-        dist =  torch.norm((perturbed - images).view(batch_size, -1), self.ord, 1)
+        dist = torch.norm((perturbed - images).view(batch_size, -1), self.ord, 1)
         working_ind = torch.nonzero(dist > self.epsilon).view(-1)
         success_stop_queries[working_ind] = query[working_ind]
         for inside_batch_index, index_over_all_images in enumerate(batch_image_positions):
@@ -389,7 +389,7 @@ class HotSkipJumpAttack(object):
             if torch.sum(query >= self.maximum_queries).item() == true_labels.size(0):
                 break
             # compute new distance.
-            dist =  torch.norm((perturbed - images).view(batch_size, -1), self.ord, 1)
+            dist = torch.norm((perturbed - images).view(batch_size, -1), self.ord, 1)
             log.info('{}-th image, iteration: {}, {}: distortion {:.4f}, query: {}'.format(batch_index+1, j + 1, self.norm, dist.item(), int(query[0].item())))
         success_stop_queries = torch.clamp(success_stop_queries, 0, self.maximum_queries)
         return perturbed, query, success_stop_queries, dist, (dist <= self.epsilon)
@@ -450,9 +450,9 @@ class HotSkipJumpAttack(object):
         log.info('Saving results to {}'.format(result_dump_path))
         meta_info_dict = {"avg_correct": self.correct_all.mean().item(),
                           "avg_not_done": self.not_done_all[self.correct_all.byte()].mean().item(),
-                          # "mean_query": self.success_query_all[self.success_all.byte()].mean().item(),
-                          # "median_query": self.success_query_all[self.success_all.byte()].median().item(),
-                          # "max_query": self.success_query_all[self.success_all.byte()].max().item(),
+                          "mean_query": self.success_query_all[self.success_all.byte()].mean().item(),
+                          "median_query": self.success_query_all[self.success_all.byte()].median().item(),
+                          "max_query": self.success_query_all[self.success_all.byte()].max().item(),
                           "correct_all": self.correct_all.detach().cpu().numpy().astype(np.int32).tolist(),
                           "not_done_all": self.not_done_all.detach().cpu().numpy().astype(np.int32).tolist(),
                           "success_all":self.success_all.detach().cpu().numpy().astype(np.int32).tolist(),

@@ -305,7 +305,7 @@ class TangentAttack(object):
         num_evals = 0
         while True:
             # x_projection = calculate_projection_of_x_original(x_original.view(-1),x_boundary.view(-1),normal_vector.view(-1))
-            # if torch.norm(x_projection.view(-1) - x_boundary.view(-1),p=self.ord).item() <= radius:
+            # if torch.norm(x_projection.view(-1) - x_original.view(-1),p=self.ord).item() <= radius:
             #     log.info("projection point lies inside ball! reduce radius from {:.3f} to {:.3f}".format(radius, radius/2.0))
             #     radius /= 2.0
             #     continue
@@ -323,7 +323,7 @@ class TangentAttack(object):
                                                                                                   difference.mean().item(),
                                                                                                   difference.sum().item(),
                                                                                                   torch.norm(difference)))
-            tangent_point = tangent_point.view_as(x_original)
+            tangent_point = tangent_point.view_as(x_original).type(x_original.dtype)
             success = self.decision_function(tangent_point[None], true_labels, target_labels)
             num_evals += 1
             if bool(success[0].item()):
@@ -598,6 +598,9 @@ if __name__ == "__main__":
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
+    torch.cuda.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
+
     if args.all_archs:
         archs = MODELS_TEST_STANDARD[args.dataset]
     else:

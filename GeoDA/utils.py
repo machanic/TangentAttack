@@ -3,7 +3,6 @@ import os
 import torch
 import copy
 from math import cos, sqrt, pi
-from numba import jit
 
 
 def dct(x, y, v, u, n):
@@ -16,7 +15,7 @@ def dct(x, y, v, u, n):
 
     return alpha(u) * alpha(v) * cos(((2 * x + 1) * (u * pi)) / (2 * n)) * cos(((2 * y + 1) * (v * pi)) / (2 * n))
 
-@jit
+
 def generate_2d_dct_basis(root_path, image_height, sub_dim=75):
     path = "{}/attacked_images/GeoDA/2d_dct_basis_height_{}_subdim_{}.npy".format(root_path, image_height, sub_dim)
     os.makedirs(os.path.dirname(path),exist_ok=True)
