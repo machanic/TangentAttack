@@ -30,10 +30,16 @@ def distance(x_adv, x, norm='l2'):
 
 def get_exp_dir_name(dataset,  norm, targeted, target_type, args):
     target_str = "untargeted" if not targeted else "targeted_{}".format(target_type)
-    if args.attack_defense:
-        dirname = 'SignOPT_on_defensive_model-{}-{}-{}'.format(dataset,  norm, target_str)
+    if args.svm:
+        if args.attack_defense:
+            dirname = 'SVMOPT_on_defensive_model-{}-{}-{}'.format(dataset,  norm, target_str)
+        else:
+            dirname = 'SVMOPT-{}-{}-{}'.format(dataset, norm, target_str)
     else:
-        dirname = 'SignOPT-{}-{}-{}'.format(dataset, norm, target_str)
+        if args.attack_defense:
+            dirname = 'SignOPT_on_defensive_model-{}-{}-{}'.format(dataset,  norm, target_str)
+        else:
+            dirname = 'SignOPT-{}-{}-{}'.format(dataset, norm, target_str)
     return dirname
 
 def print_args(args):
@@ -54,7 +60,7 @@ def get_parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, required=True, choices=["CIFAR-10","CIFAR-100","ImageNet"],
                         help='Dataset to be used, [CIFAR-10, CIFAR-100, ImageNet]')
-    parser.add_argument('--json-config', type=str, default='./configures/BBA.json',
+    parser.add_argument('--json-config', type=str, default='./configures/SignOPT.json',
                         help='a configures file to be passed in instead of arguments')
     parser.add_argument('--random_start', action='store_true', default=False,
                         help='PGD attack with random start.')
@@ -75,6 +81,7 @@ def get_parse_args():
     parser.add_argument('--gpu', type=int, required=True, help='which GPU ID will be used')
     parser.add_argument('--attack_defense', action="store_true")
     parser.add_argument('--defense_model', type=str, default=None)
+    parser.add_argument('--svm',action='store_true',help="using this option is SVM-OPT attack")
 
     args = parser.parse_args()
     torch.backends.cudnn.deterministic = True
@@ -147,7 +154,7 @@ if __name__ == "__main__":
         model.eval()
         attacker = SignOptL2Norm(model, args.dataset, args.epsilon, args.targeted,
                                  args.batch_size, args.est_grad_direction_num,
-                                maximum_queries=args.max_queries)
+                                maximum_queries=args.max_queries,svm=args.svm)
         attacker.attack_all_images(args, arch, save_result_path)
         model.cpu()
 

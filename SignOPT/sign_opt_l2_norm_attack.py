@@ -42,12 +42,11 @@ class SignOptL2Norm(object):
         lbd = initial_lbd
 
         # still inside boundary
-        # log.info("size :{}".format((x0 + lbd * theta).size(0)))
-        if self.model((x0 + lbd * theta).cuda()).max(1)[1].item() == y0:
+        if self.model(x0 + lbd * theta).max(1)[1].item() == y0:
             lbd_lo = lbd
             lbd_hi = lbd * 1.01
             nquery += 1
-            while self.model((x0 + lbd_hi * theta).cuda()).max(1)[1].item() == y0:
+            while self.model(x0 + lbd_hi * theta).max(1)[1].item() == y0:
                 lbd_hi = lbd_hi * 1.01
                 nquery += 1
                 if lbd_hi > 20:
@@ -56,26 +55,28 @@ class SignOptL2Norm(object):
             lbd_hi = lbd
             lbd_lo = lbd * 0.99
             nquery += 1
-            # log.info("size :{}".format((x0 + lbd_lo * theta).size(0)))
-            while self.model((x0 + lbd_lo * theta).cuda()).max(1)[1].item() != y0:
+            while self.model(x0 + lbd_lo * theta).max(1)[1].item() != y0:
                 lbd_lo = lbd_lo * 0.99
                 nquery += 1
-
+        tot_count = 0
         while (lbd_hi - lbd_lo) > tol:
+            tot_count+=1
             lbd_mid = (lbd_lo + lbd_hi) / 2.0
             nquery += 1
-            # log.info("size :{}".format((x0 + lbd_mid * theta).size(0)))
-            if self.model((x0 + lbd_mid * theta).cuda()).max(1)[1].item() != y0:
+            if self.model(x0 + lbd_mid * theta).max(1)[1].item() != y0:
                 lbd_hi = lbd_mid
             else:
                 lbd_lo = lbd_mid
+            if tot_count>200:
+                log.info("reach max while limit, maybe dead for-loop, break!")
+                break
         return lbd_hi, nquery
 
     def fine_grained_binary_search(self,  x0, y0, theta, initial_lbd, current_best):
         nquery = 0
         if initial_lbd > current_best:
             nquery += 1
-            if self.model((x0 + current_best * theta).cuda()).max(1)[1].item() == y0:
+            if self.model(x0 + current_best * theta).max(1)[1].item() == y0:
                 return float('inf'), nquery
             lbd = current_best
         else:
@@ -87,7 +88,7 @@ class SignOptL2Norm(object):
         while (lbd_hi - lbd_lo) > 1e-3:  # was 1e-5
             lbd_mid = (lbd_lo + lbd_hi) / 2.0
             nquery += 1
-            if self.model((x0 + lbd_mid * theta).cuda()).max(1)[1].item() != y0:
+            if self.model(x0 + lbd_mid * theta).max(1)[1].item() != y0:
                 lbd_hi = lbd_mid
             else:
                 lbd_lo = lbd_mid
@@ -98,7 +99,7 @@ class SignOptL2Norm(object):
         Solve min_a  0.5*aQa + b^T a s.t. a>=0
         """
         K = Q.size(0)
-        alpha = torch.zeros(K)
+        alpha = torch.zeros(K).cuda()
         g = b
         Qdiag = torch.diag(Q)
         for i in range(20000):
@@ -118,51 +119,73 @@ class SignOptL2Norm(object):
         """
         queries = 0
         dim = np.prod(list(theta.size())).item()
-        X = torch.zeros(dim, K)
+        # X = torch.zeros(dim, K).cuda()
+        images_batch = []
+        u_batch = []
+
         for iii in range(K):
             u = torch.randn_like(theta)
             u /= torch.norm(u)
 
-            sign = 1
+            # sign = 1
             new_theta = theta + h * u
             new_theta /= torch.norm(new_theta)
-
-            # Targeted case.
-            if (target_label is not None and
-                    self.model((images + initial_lbd * new_theta).cuda()).max(1)[1].item() == target_label):
-                sign = -1
-
-            # Untargeted case
-
-            if (target_label is None and
-                    self.model((images + initial_lbd * new_theta).cuda()).max(1)[1].item() != true_label):
-                sign = -1
+            images_batch.append(images + initial_lbd * new_theta)
+            u_batch.append(u)
             queries += 1
-            X[:, iii] = sign * u.view(dim)
+            # delete below code to accelrate speed by batch
+            # # Targeted case.
+            # if (target_label is not None and
+            #         self.model(images + initial_lbd * new_theta).max(1)[1].item() == target_label):
+            #     sign = -1
+            #
+            # # Untargeted case
+            #
+            # if (target_label is None and
+            #         self.model(images + initial_lbd * new_theta).max(1)[1].item() != true_label):
+            #     sign = -1
 
-        Q = torch.matmul(X.transpose(0,1),X)
-        q = -1 * torch.ones((K,))
+            # X[:, iii] = sign * u.view(dim)
+        # the batch image feed process
+        images_batch = torch.cat(images_batch,0)
+        u_batch = torch.cat(u_batch,0) # K,C,H,W
+        sign = torch.ones(K).cuda()
+        if target_label is not None:
+            target_labels = torch.tensor([target_label for _ in range(K)]).long().cuda()
+            predict_labels = self.model(images_batch).max(1)[1]
+            sign[predict_labels == target_labels] = -1
+        else:
+            true_labels = torch.tensor([true_label for _ in range(K)]).long().cuda()
+            predict_labels = self.model(images_batch).max(1)[1]
+            sign[predict_labels!=true_labels] = -1
+
+        X = torch.transpose(u_batch.view(K, dim) * sign.view(K,1),0,1)  # convert from X[:, iii] = sign * u.view(dim)
+        Q = torch.mm(X.transpose(0,1),X)  # K,dim x dim,K = K,K
+        q = -1 * torch.ones((K,)).cuda()
         G = torch.diag(-1 * torch.ones((K,)))
         h = torch.zeros((K,))
         ### Use quad_qp solver
         # alpha = solve_qp(Q, q, G, h)
         ### Use coordinate descent solver written by myself, avoid non-positive definite cases
-        alpha = self.quad_solver(Q, q)
+        alpha = self.quad_solver(Q, q) # K,K x K = K,1
         sign_grad = torch.matmul(X, alpha).view_as(theta)
         return sign_grad, queries
 
+    # the version of accelerate speed by batch feeding
     def sign_grad_v1(self, images, true_label, theta, initial_lbd, h=0.001, target_label=None):
         """
         Evaluate the sign of gradient by formulat
         sign(g) = 1/Q [ \sum_{q=1}^Q sign( g(theta+h*u_i) - g(theta) )u_i$ ]
         """
         K = self.k  # 200 random directions (for estimating the gradient)
-        sign_grad = torch.zeros_like(theta)
+        # sign_grad = torch.zeros_like(theta)
         queries = 0
         ### USe orthogonal transform
         # dim = np.prod(sign_grad.shape)
         # H = np.random.randn(dim, K)
         # Q, R = qr(H, mode='economic')
+        images_batch = []
+        u_batch = []
         for iii in range(K):  # for each u
             # # Code for reduced dimension gradient
             # u = np.random.randn(N_d,N_d)
@@ -173,28 +196,42 @@ class SignOptL2Norm(object):
             u /= torch.norm(u)
             new_theta = theta + h * u
             new_theta /= torch.norm(new_theta)
-            sign = 1
-
-            # Targeted case.
-            if (target_label is not None and
-                    self.model((images + initial_lbd * new_theta).cuda()).max(1)[1].item() == target_label):
-                sign = -1
-
-            # Untargeted case
-            if (target_label is None and
-                    self.model((images + initial_lbd * new_theta).cuda()).max(1)[1].item() != true_label):  # success
-                sign = -1
-
+            # sign = 1
+            u_batch.append(u)
+            images_batch.append(images + initial_lbd * new_theta)
+            # the below code is so slow, accelerate it by batch, so I delete it
+            # # Targeted case.
+            # if (target_label is not None and
+            #         self.model(images + initial_lbd * new_theta).max(1)[1].item() == target_label):
+            #     sign = -1
+            #
+            # # Untargeted case
+            # if (target_label is None and
+            #         self.model(images + initial_lbd * new_theta).max(1)[1].item() != true_label):  # success
+            #     sign = -1
+            # sign_grad += u * sign
             queries += 1
-            sign_grad += u * sign
+        images_batch = torch.cat(images_batch,0)
+        u_batch = torch.cat(u_batch,0)  # B,C,H,W
+        assert u_batch.dim() == 4
+        sign = torch.ones(K).cuda()
+        if target_label is not None:
+            target_labels = torch.tensor([target_label for _ in range(K)]).long().cuda()
+            predict_labels = self.model(images_batch).max(1)[1]
+            sign[predict_labels == target_labels] = -1
+        else:
+            true_labels = torch.tensor([true_label for _ in range(K)]).long().cuda()
+            predict_labels = self.model(images_batch).max(1)[1]
+            sign[predict_labels!=true_labels] = -1
+        sign_grad = torch.sum(u_batch * sign.view(K,1,1,1),dim=0,keepdim=True)
 
-        sign_grad /= K
+        sign_grad = sign_grad / K
 
         return sign_grad, queries
 
-
     def untargeted_attack(self, image_index, images, true_labels,):
         assert images.size(0) == 1
+        images = images.cuda()
         alpha = self.alpha
         beta = self.beta
         momentum = self.momentum
@@ -207,11 +244,11 @@ class SignOptL2Norm(object):
         # Calculate a good starting point.
         num_directions = 100
         best_theta, g_theta = None, float('inf')
-        log.info("Searching for the initial direction on {} random directions: ".format(num_directions))
+        log.info("Searching for the initial direction on {} random directions.".format(num_directions))
         for i in range(num_directions):
             query += 1
             theta = torch.randn_like(images)
-            if self.model((images + theta).cuda()).max(1)[1].item() != true_label:
+            if self.model(images + theta).max(1)[1].item() != true_label:
                 initial_lbd = torch.norm(theta)
                 theta /= initial_lbd
                 lbd, count = self.fine_grained_binary_search(images, true_label, theta, initial_lbd, g_theta)
@@ -252,9 +289,11 @@ class SignOptL2Norm(object):
                 else:
                     new_theta = xg - alpha * sign_gradient
                 new_theta /= torch.norm(new_theta)
-
+                tol = beta/500
+                if self.dataset == "ImageNet":
+                    tol = 1e-4
                 new_g2, count = self.fine_grained_binary_search_local(images, true_label, new_theta,
-                                                                      initial_lbd=min_g2, tol=beta/500)
+                                                                      initial_lbd=min_g2, tol=tol)
                 ls_count += count
                 query += count
 
@@ -277,8 +316,11 @@ class SignOptL2Norm(object):
                     else:
                         new_theta = xg - alpha * sign_gradient
                     new_theta /= torch.norm(new_theta)
+                    tol = beta / 500
+                    if self.dataset == "ImageNet":
+                        tol = 1e-4
                     new_g2, count = self.fine_grained_binary_search_local(images, true_label, new_theta,
-                                                                          initial_lbd=min_g2, tol=beta/500)
+                                                                          initial_lbd=min_g2, tol=tol)
                     ls_count += count
                     query += count
                     if new_g2 < gg:
@@ -305,9 +347,8 @@ class SignOptL2Norm(object):
             log.info("{}-th Image, iteration {}, distortion {:.4f}, num_queries {}".format(image_index+1, i+1, gg, query[0].item()))
             if query.min().item() >= self.maximum_queries:
                 break
-            
         if self.epsilon is None or gg <= self.epsilon:
-            target = self.model((images + gg * xg).cuda()).max(1)[1].item()
+            target = self.model(images + gg * xg).max(1)[1].item()
             log.info("{}-th image success distortion {:.4f} target {} queries {} LS queries {}".format(image_index+1,
                                                                                                        gg, target, query[0].item(), ls_total))
 
@@ -315,7 +356,7 @@ class SignOptL2Norm(object):
             # return images + gg * xg, gg, True, query, xg
         # gg 是distortion
         distortion = torch.norm(gg * xg, p=2)
-        assert distortion.item() - gg < 1e-4, "gg:{:.4f}  dist:{:.4f}".format(gg.item(), distortion.item())
+        assert distortion.item() - gg < 1e-4, "gg:{:.4f}  dist:{:.4f}".format(gg, distortion.item())
 
         return images + gg * xg, query,success_stop_queries, torch.tensor([gg]).float(), torch.tensor([gg]).float() <= self.epsilon, xg
 
@@ -498,8 +539,9 @@ class SignOptL2Norm(object):
                 images = F.interpolate(images,
                                        size=(self.model.input_size[-2], self.model.input_size[-1]), mode='bilinear',
                                        align_corners=False)
+            images = images.cuda()
             with torch.no_grad():
-                logit = self.model(images.cuda())
+                logit = self.model(images)
             pred = logit.argmax(dim=1)
             correct = pred.eq(true_labels.cuda()).float()  # shape = (batch_size,)
             if correct.int().item() == 0: # we must skip any image that is classified incorrectly before attacking, otherwise this will cause infinity loop in later procedure
@@ -545,8 +587,6 @@ class SignOptL2Norm(object):
                 value_all = getattr(self, key + "_all")
                 value = eval(key)
                 value_all[selected] = value.detach().float().cpu()
-            
-
 
         log.info('{} is attacked finished ({} images)'.format(arch_name, self.total_images))
         log.info('Saving results to {}'.format(result_dump_path))

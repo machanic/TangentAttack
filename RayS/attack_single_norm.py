@@ -135,7 +135,7 @@ class RayS(object):
             d_mid = (d_start + d_end) / 2.0
             # binary search, test the middle 注意这里query超过max_query的也继续增加新的query，继续攻击
             search_succ_mask = self.search_succ(self.get_xadv(images, sgn_unit, d_mid), true_labels, target_labels, to_search_ind, query)
-            d_end[to_search_ind[search_succ_mask]] = d_mid[to_search_ind[search_succ_mask]]
+            d_end[to_search_ind[search_succ_mask]] = d_mid[to_search_ind[search_succ_mask]] # only the attacked successful d_end are updated
             d_start[to_search_ind[~search_succ_mask]] = d_mid[to_search_ind[~search_succ_mask]]
             to_search_ind = to_search_ind[((d_end - d_start)[to_search_ind] > tol)]  # d_end - d_start > 1e-3
 
