@@ -179,7 +179,7 @@ class RayS(object):
 
             adv_images, query, success_query, distortion_with_max_queries, success_epsilon = self.attack(batch_index, images.cuda(), true_labels.cuda(), target_labels)
             distortion_with_max_queries = distortion_with_max_queries.detach().cpu()
-            success = success_epsilon.float() * (success_query <= self.maximum_queries).float()  # query超过max_queries，只要仍然在分类边界的target一侧，就继续增加query查询，因此即使攻击成功，也可能query > epsilon
+            success = success_epsilon.float()   # query超过max_queries，只要仍然在分类边界的target一侧，就继续增加query查询，因此即使攻击成功，也可能query > epsilon
             not_done = torch.ones_like(success) - success
             success = success * correct
 

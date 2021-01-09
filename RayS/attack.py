@@ -126,6 +126,7 @@ class RayS(object):
 
         success_stop_queries_of_l2_norm = torch.clamp(success_stop_queries_of_l2_norm, 0, self.maximum_queries)
         success_stop_queries_of_linf_norm = torch.clamp(success_stop_queries_of_linf_norm, 0, self.maximum_queries)
+        # adv_images, query, success_query_l2, success_query_linf, l2_distortion_with_max_queries, linf_distortion_with_max_queries, success_epsilon_l2, success_epsilon_linf
         return self.x_final, query, success_stop_queries_of_l2_norm,success_stop_queries_of_linf_norm , dist_l2, dist_linf, \
                     dist_l2 <= self.epsilon_l2, dist_linf <= self.epsilon_linf
 
@@ -199,8 +200,8 @@ class RayS(object):
             adv_images, query, success_query_l2, success_query_linf, l2_distortion_with_max_queries, linf_distortion_with_max_queries, success_epsilon_l2, success_epsilon_linf = self.attack(batch_index, images.cuda(), true_labels.cuda(), target_labels)
             l2_distortion_with_max_queries = l2_distortion_with_max_queries.detach().cpu()
             linf_distortion_with_max_queries = linf_distortion_with_max_queries.detach().cpu()
-            success_l2 = success_epsilon_l2.float() * (success_query_l2 <= self.maximum_queries).float()  # query超过max_queries，只要仍然在分类边界的target一侧，就继续增加query查询，因此即使攻击成功，也可能query > epsilon
-            success_linf = success_epsilon_linf.float() * (success_query_linf <= self.maximum_queries).float()
+            success_l2 = success_epsilon_l2.float()  # query超过max_queries，只要仍然在分类边界的target一侧，就继续增加query查询，因此即使攻击成功，也可能query > epsilon
+            success_linf = success_epsilon_linf.float()
             not_done_l2 = torch.ones_like(success_l2) - success_l2
             not_done_linf = torch.ones_like(success_linf) - success_linf
             success_l2 = success_l2 * correct

@@ -237,7 +237,6 @@ class GeoDA(object):
 
         return grad_f, sum(z), num_calls
 
-    # FIXME not work, you can delete this code
     def geometric_progression_for_stepsize(self, x_adv, true_label, target_label, grad, dist, cur_iter):
         """
         Geometric progression to search for stepsize.
@@ -299,8 +298,8 @@ class GeoDA(object):
             # q_num = q_num + q_opt[i]
             q_num = q_num + num_call
             grad = grad_oi + grad
-            # dist = torch.norm((x_adv - x_0).view(self.batch_size, -1), self.ord, 1)
             x_adv, qs, eps = self.go_to_boundary(x_0, true_label, target_label, grad)
+
             q_num = q_num + qs
             x_adv, bin_query = self.bin_search(x_0,x_adv,true_label, target_label, self.tol)
             q_num = q_num + bin_query
@@ -521,9 +520,9 @@ class GeoDA(object):
 def get_exp_dir_name(dataset,  norm, targeted, target_type, args):
     target_str = "untargeted" if not targeted else "targeted_{}".format(target_type)
     if args.attack_defense:
-        dirname = 'GeoDA_on_defensive_model-{}-{}-{}'.format(dataset,  norm, target_str)
+        dirname = 'tangent_GeoDA_attack_on_defensive_model-{}-{}-{}'.format(dataset,  norm, target_str)
     else:
-        dirname = 'GeoDA-{}-{}-{}'.format(dataset, norm, target_str)
+        dirname = 'tangent_GeoDA_attack-{}-{}-{}'.format(dataset, norm, target_str)
     return dirname
 
 def print_args(args):

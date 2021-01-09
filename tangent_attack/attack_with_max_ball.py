@@ -18,11 +18,12 @@ from dataset.dataset_loader_maker import DataLoaderMaker
 from models.standard_model import StandardModel
 from models.defensive_model import DefensiveModel
 from dataset.target_class_dataset import ImageNetDataset,CIFAR100Dataset,CIFAR10Dataset
-from airdrop_attack.utils import calculate_projection_of_x_original
+from tangent_attack.scipy_find_tangent_point import solve_tangent_point
+from tangent_attack.find_tangent_solution_analytical_solution import TangentFinder, calculate_projection_of_x_original
 
-class AirAttack(object):
+class TangentAttack(object):
     def __init__(self, model, dataset,  clip_min, clip_max, height, width, channels, norm, epsilon, iterations=40, gamma=1.0, stepsize_search='geometric_progression',
-                 max_num_evals=1e4, init_num_evals=100, maximum_queries=10000):
+                 max_num_evals=1e4, init_num_evals=100, maximum_queries=10000, verify_tangent_point=False, max_ball=False):
         """
         :param clip_min: lower bound of the image.
         :param clip_max: upper bound of the image.
@@ -54,7 +55,8 @@ class AirAttack(object):
         self.num_iterations = iterations
         self.gamma = gamma
         self.stepsize_search = stepsize_search
-
+        self.verify_tangent_point = verify_tangent_point
+        self.max_ball = max_ball
         self.maximum_queries = maximum_queries
         self.dataset_name = dataset
         self.dataset_loader = DataLoaderMaker.get_test_attacked_data(dataset, args.batch_size)
@@ -68,7 +70,7 @@ class AirAttack(object):
         self.success_query_all = torch.zeros_like(self.query_all)
         self.distortion_with_max_queries_all = torch.zeros_like(self.query_all)
 
-    def get_image_of_target_class(self,dataset_name, target_labels, target_model):
+    def get_image_of_target_class(self,dataset_name, target_labels):
 
         images = []
         for label in target_labels:  # length of target_labels is 1
@@ -82,22 +84,22 @@ class AirAttack(object):
             index = np.random.randint(0, len(dataset))
             image, true_label = dataset[index]
             image = image.unsqueeze(0)
-            if dataset_name == "ImageNet" and target_model.input_size[-1] != 299:
+            if dataset_name == "ImageNet" and self.model.input_size[-1] != 299:
                 image = F.interpolate(image,
-                                       size=(target_model.input_size[-2], target_model.input_size[-1]), mode='bilinear',
+                                       size=(self.model.input_size[-2], self.model.input_size[-1]), mode='bilinear',
                                        align_corners=False)
             with torch.no_grad():
-                logits = target_model(image.cuda())
+                logits = self.model(image.cuda())
             while logits.max(1)[1].item() != label.item():
                 index = np.random.randint(0, len(dataset))
                 image, true_label = dataset[index]
                 image = image.unsqueeze(0)
-                if dataset_name == "ImageNet" and target_model.input_size[-1] != 299:
+                if dataset_name == "ImageNet" and self.model.input_size[-1] != 299:
                     image = F.interpolate(image,
-                                       size=(target_model.input_size[-2], target_model.input_size[-1]), mode='bilinear',
+                                       size=(self.model.input_size[-2], self.model.input_size[-1]), mode='bilinear',
                                        align_corners=False)
                 with torch.no_grad():
-                    logits = target_model(image.cuda())
+                    logits = self.model(image.cuda())
             assert true_label == label.item()
             images.append(torch.squeeze(image))
         return torch.stack(images) # B,C,H,W
@@ -136,7 +138,7 @@ class AirAttack(object):
                                                                 size=target_labels[invalid_target_index].size()).long()
                             invalid_target_index = target_labels.eq(true_labels)
 
-                    initialization = self.get_image_of_target_class(self.dataset_name,target_labels, self.model).squeeze()
+                    initialization = self.get_image_of_target_class(self.dataset_name,target_labels).squeeze()
                     return initialization, 1
                 # assert num_eval < 1e4, "Initialization failed! Use a misclassified image as `target_image`"
             # Binary search to minimize l2 distance to original image.
@@ -215,6 +217,31 @@ class AirAttack(object):
         out_image = out_images[idx]
         return out_image, dist, num_evals
 
+
+    def binary_search_for_ball_radius(self, min_radius, max_radius, x_original, x_boundary, true_labels, target_labels, normal_vector):
+        num_evals = 0
+        low = min_radius
+        high = max_radius
+        while high - low > 0.5:
+            # projection to mids.
+            mid = (high + low) / 2.0
+            log.info("low is {}, high is {}, mid is {}".format(low, high, mid))
+            tangent_finder = TangentFinder(x_original.view(-1), x_boundary.view(-1), mid, normal_vector.view(-1), norm="l2")
+            tangent_point = tangent_finder.compute_tangent_point()
+            tangent_point = tangent_point.view_as(x_original)
+            # Update highs and lows based on model decisions.
+            success = self.decision_function(torch.unsqueeze(tangent_point,0), true_labels, target_labels)[0].item()
+            num_evals += 1
+            if not success:
+                high = mid  # high一侧是攻击失败的
+            else:
+                low = mid  # low一侧是攻击成功的
+        tangent_finder = TangentFinder(x_original.view(-1), x_boundary.view(-1), low, normal_vector.view(-1), norm="l2")
+        tangent_point = tangent_finder.compute_tangent_point()
+        out_image = tangent_point.view_as(x_original)
+
+        return out_image, num_evals
+
     def select_delta(self, cur_iter, dist_post_update):
         """
         Choose the delta at the scale of distance
@@ -273,7 +300,7 @@ class AirAttack(object):
 
         return gradf
 
-    def geometric_progression_for_stepsize(self, x, true_labels, target_labels, update, dist, cur_iter):
+    def geometric_progression_for_HSJA(self, x, true_labels, target_labels, update, dist, cur_iter):
         """
         Geometric progression to search for stepsize.
         Keep decreasing stepsize by half until reaching
@@ -289,9 +316,50 @@ class AirAttack(object):
 
         while not phi(epsilon, num_evals):  # 只要没有成功，就缩小epsilon
             epsilon /= 2.0
+        perturbed = torch.clamp(x + epsilon * update, self.clip_min, self.clip_max)
+        return perturbed
 
-        return epsilon, num_evals.item()
 
+    def geometric_progression_for_tangent_point(self, x_original, x_boundary, normal_vector, true_labels, target_labels, dist, cur_iter):
+        """
+        Geometric progression to search for stepsize.
+        Keep decreasing stepsize by half until reaching
+        the desired side of the boundary,
+        """
+
+        max_radius = dist.item() / np.sqrt(cur_iter)
+        min_radius = max_radius
+        num_evals = 0
+
+        while True:
+            tangent_finder = TangentFinder(x_original.view(-1), x_boundary.view(-1), min_radius, normal_vector.view(-1), norm="l2")
+            tangent_point = tangent_finder.compute_tangent_point()
+            if self.verify_tangent_point:
+                log.info("verifying tagent point")
+                another_tangent_point = solve_tangent_point(x_original.view(-1).detach().cpu().numpy(), x_boundary.view(-1).detach().cpu().numpy(),
+                                    normal_vector.view(-1).detach().cpu().numpy(), min_radius, clip_min=self.clip_min,clip_max=self.clip_max)
+                if isinstance(another_tangent_point, np.ndarray):
+                    another_tangent_point = torch.from_numpy(another_tangent_point).type_as(tangent_point).to(tangent_point.device)
+                difference = tangent_point - another_tangent_point
+                log.info("Difference max: {:.4f} mean: {:.4f} sum: {:.4f} L2 norm: {:.4f}".format(difference.max().item(),
+                                                                                                  difference.mean().item(),
+                                                                                                  difference.sum().item(),
+                                                                                                  torch.norm(difference)))
+            tangent_point = tangent_point.view_as(x_original).type(x_original.dtype)
+            success = self.decision_function(tangent_point[None], true_labels, target_labels)
+            num_evals += 1
+            if bool(success[0].item()):
+               break
+            max_radius = min_radius  # 这样max一侧是攻击失败的
+            min_radius /= 2.0  # min一侧才是攻击成功的
+            log.info("reduce radius to {}".format(min_radius))
+        if self.max_ball and min_radius != max_radius:
+            tangent_point, num_evals_max_ball = self.binary_search_for_ball_radius(min_radius, max_radius, x_original,
+                                                                                   x_boundary, true_labels, target_labels,
+                                                                                   normal_vector)
+            num_evals += num_evals_max_ball
+        tangent_point = torch.clamp(tangent_point, self.clip_min, self.clip_max)
+        return tangent_point, num_evals
 
 
     def compute_distance(self, x_ori, x_pert, norm='l2'):
@@ -300,20 +368,6 @@ class AirAttack(object):
             return torch.norm(x_ori - x_pert,p=2).item()
         elif norm == 'linf':
             return torch.max(torch.abs(x_ori - x_pert)).item()
-
-    def find_airdrop_point(self, x_original, x_perturbed, normal_vector, true_labels, target_labels):
-        # x_perturbed:直升飞机起飞的点
-        air_point = calculate_projection_of_x_original(x_original.view(-1), x_perturbed.view(-1), normal_vector.view(-1))
-        air_point = air_point.view_as(x_original)
-        success = self.decision_function(air_point[None], true_labels, target_labels)
-        if bool(success[0].item()): # drop
-            perturbed, dist_post_update, num_eval = self.binary_search_batch(x_original, air_point[None], true_labels,
-                                                                             target_labels)
-            return perturbed, dist_post_update, num_eval + 1
-        else:  # x_perturbed 肯定是攻击成功的， air_point是攻击失败的。
-            perturbed, dist_post_update, num_eval = self.binary_search_batch(air_point, x_perturbed[None], true_labels,
-                                                                             target_labels)
-            return perturbed, dist_post_update, num_eval + 1
 
 
 
@@ -361,22 +415,22 @@ class AirAttack(object):
             # approximate gradient
             gradf = self.approximate_gradient(perturbed, true_labels, target_labels, num_evals, delta)
             query += num_evals
-            if self.norm == "linf":
-                update = torch.sign(gradf)
-            else:
-                update = gradf
             # search step size.
             if self.stepsize_search == 'geometric_progression':
                 # find step size.
-                epsilon, num_evals = self.geometric_progression_for_stepsize(perturbed, true_labels, target_labels, update, dist, cur_iter)
+                perturbed_Tagent, num_evals = self.geometric_progression_for_tangent_point(images, perturbed, gradf,true_labels, target_labels, dist, cur_iter)
                 query += num_evals
-                # Update the sample.
-                perturbed = torch.clamp(perturbed + epsilon * update, self.clip_min, self.clip_max)
-                perturbed, dist_post_update, num_eval = self.find_airdrop_point(images, perturbed, update, true_labels, target_labels)
+                # perturbed_HSJA = self.geometric_progression_for_HSJA(perturbed, true_labels, target_labels, gradf, dist, cur_iter)
+                # dist_tangent = torch.norm((perturbed_Tagent - images).view(batch_size, -1), self.ord, 1).item()
+                # dist_HSJA = torch.norm((perturbed_HSJA - images).view(batch_size, -1), self.ord, 1).item()
+                # log.info("dist of tangent: {:.4f}, dist of HSJA:{:.4f}, tangent < HSJA: {}".format(dist_tangent, dist_HSJA, dist_tangent < dist_HSJA))
+                perturbed = perturbed_Tagent
                 # Binary search to return to the boundary.
-                # perturbed, dist_post_update, num_eval = self.binary_search_batch(images, perturbed[None], true_labels, target_labels)
+                # log.info("before geometric_progression binary_search_batch")
+                perturbed, dist_post_update, num_eval = self.binary_search_batch(images, perturbed[None], true_labels, target_labels)
+                # log.info("after geometric_progression binary_search_batch")
                 query += num_eval
-                dist =  torch.norm((perturbed - images).view(batch_size, -1), self.ord, 1)
+                dist = torch.norm((perturbed - images).view(batch_size, -1), self.ord, 1)
                 working_ind = torch.nonzero(dist > self.epsilon).view(-1)
                 success_stop_queries[working_ind] = query[working_ind]
                 for inside_batch_index, index_over_all_images in enumerate(batch_image_positions):
@@ -384,6 +438,10 @@ class AirAttack(object):
                         inside_batch_index].item()
             elif self.stepsize_search == "grid_search":
                 # Grid search for stepsize.
+                if self.norm == "linf":
+                    update = torch.sign(gradf)
+                else:
+                    update = gradf
                 epsilons = torch.logspace(-4, 0, steps=20) * dist
                 epsilons_shape = [20] + len(self.shape) * [1]
                 perturbeds = perturbed + epsilons.view(epsilons_shape) * update
@@ -411,15 +469,15 @@ class AirAttack(object):
         success_stop_queries = torch.clamp(success_stop_queries, 0, self.maximum_queries)
         return perturbed, query, success_stop_queries, dist, (dist <= self.epsilon)
 
-    def attack_all_images(self, args, arch_name, target_model, result_dump_path):
+    def attack_all_images(self, args, arch_name,  result_dump_path):
 
         for batch_index, (images, true_labels) in enumerate(self.dataset_loader):
-            if args.dataset == "ImageNet" and target_model.input_size[-1] != 299:
+            if args.dataset == "ImageNet" and self.model.input_size[-1] != 299:
                 images = F.interpolate(images,
-                                       size=(target_model.input_size[-2], target_model.input_size[-1]), mode='bilinear',
+                                       size=(self.model.input_size[-2], self.model.input_size[-1]), mode='bilinear',
                                        align_corners=False)
             with torch.no_grad():
-                logit = target_model(images.cuda())
+                logit = self.model(images.cuda())
             pred = logit.argmax(dim=1)
             correct = pred.eq(true_labels.cuda()).float()  # shape = (batch_size,)
             selected = torch.arange(batch_index * args.batch_size, min((batch_index + 1) * args.batch_size, self.total_images))
@@ -439,7 +497,7 @@ class AirAttack(object):
                 else:
                     raise NotImplementedError('Unknown target_type: {}'.format(args.target_type))
 
-                target_images = self.get_image_of_target_class(self.dataset_name,target_labels, target_model)
+                target_images = self.get_image_of_target_class(self.dataset_name,target_labels)
             else:
                 target_labels = None
                 target_images = None
@@ -447,7 +505,7 @@ class AirAttack(object):
             adv_images, query, success_query, distortion_with_max_queries, success_epsilon = self.attack(batch_index, images, target_images, true_labels, target_labels)
             distortion_with_max_queries = distortion_with_max_queries.detach().cpu()
             with torch.no_grad():
-                adv_logit = target_model(adv_images.cuda())
+                adv_logit = self.model(adv_images.cuda())
             adv_pred = adv_logit.argmax(dim=1)
             ## Continue query count
             not_done = correct.clone()
@@ -466,10 +524,10 @@ class AirAttack(object):
         log.info('{} is attacked finished ({} images)'.format(arch_name, self.total_images))
         log.info('Saving results to {}'.format(result_dump_path))
         meta_info_dict = {"avg_correct": self.correct_all.mean().item(),
-                          "avg_not_done": self.not_done_all[self.correct_all.byte()].mean().item(),
-                          "mean_query": self.success_query_all[self.success_all.byte()].mean().item(),
-                          "median_query": self.success_query_all[self.success_all.byte()].median().item(),
-                          "max_query": self.success_query_all[self.success_all.byte()].max().item(),
+                          "avg_not_done": self.not_done_all[self.correct_all.bool()].mean().item(),
+                          "mean_query": self.success_query_all[self.success_all.bool()].mean().item(),
+                          "median_query": self.success_query_all[self.success_all.bool()].median().item(),
+                          "max_query": self.success_query_all[self.success_all.bool()].max().item(),
                           "correct_all": self.correct_all.detach().cpu().numpy().astype(np.int32).tolist(),
                           "not_done_all": self.not_done_all.detach().cpu().numpy().astype(np.int32).tolist(),
                           "success_all":self.success_all.detach().cpu().numpy().astype(np.int32).tolist(),
@@ -485,10 +543,16 @@ class AirAttack(object):
 
 def get_exp_dir_name(dataset,  norm, targeted, target_type, args):
     target_str = "untargeted" if not targeted else "targeted_{}".format(target_type)
+    # if args.max_ball:
     if args.attack_defense:
-        dirname = 'airdrop_attack_on_defensive_model-{}-{}-{}'.format(dataset,  norm, target_str)
+        dirname = 'tangent_max_ball_attack_on_defensive_model-{}-{}-{}'.format(dataset, norm, target_str)
     else:
-        dirname = 'airdrop_attack-{}-{}-{}'.format(dataset, norm, target_str)
+        dirname = 'tangent_max_ball_attack-{}-{}-{}'.format(dataset, norm, target_str)
+    # else:
+    #     if args.attack_defense:
+    #         dirname = 'tangent_attack_on_defensive_model-{}-{}-{}'.format(dataset,  norm, target_str)
+    #     else:
+    #         dirname = 'tangent_attack-{}-{}-{}'.format(dataset, norm, target_str)
     return dirname
 
 def print_args(args):
@@ -526,9 +590,11 @@ if __name__ == "__main__":
     parser.add_argument('--defense_model',type=str, default=None)
     parser.add_argument('--max_queries',type=int, default=10000)
     parser.add_argument('--gamma',type=float)
+    parser.add_argument('--verify-tangent', action='store_true')
+    parser.add_argument('--max-ball',action='store_true')
 
     args = parser.parse_args()
-    assert args.batch_size == 1, "HSJA only supports mini-batch size equals 1!"
+    assert args.batch_size == 1, "Tangent attack only supports mini-batch size equals 1!"
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     args_dict = None
@@ -568,6 +634,9 @@ if __name__ == "__main__":
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
+    torch.cuda.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
+
     if args.all_archs:
         archs = MODELS_TEST_STANDARD[args.dataset]
     else:
@@ -593,8 +662,9 @@ if __name__ == "__main__":
             model = StandardModel(args.dataset, arch, no_grad=True)
         model.cuda()
         model.eval()
-        attacker = AirAttack(model, args.dataset, 0, 1.0, model.input_size[-2], model.input_size[-1], IN_CHANNELS[args.dataset],
+        attacker = TangentAttack(model, args.dataset, 0, 1.0, model.input_size[-2], model.input_size[-1], IN_CHANNELS[args.dataset],
                                      args.norm, args.epsilon, args.num_iterations, gamma=args.gamma, stepsize_search = args.stepsize_search,
-                                     max_num_evals=1e4, init_num_evals = 100, maximum_queries=args.max_queries)
-        attacker.attack_all_images(args, arch, model, save_result_path)
+                                     max_num_evals=1e4, init_num_evals = 100, maximum_queries=args.max_queries,
+                                     verify_tangent_point=args.verify_tangent, max_ball=args.max_ball)
+        attacker.attack_all_images(args, arch,  save_result_path)
         model.cpu()

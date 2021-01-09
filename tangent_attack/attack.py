@@ -329,7 +329,7 @@ class TangentAttack(object):
             if bool(success[0].item()):
                break
             radius /= 2.0
-
+        tangent_point = torch.clamp(tangent_point, self.clip_min, self.clip_max)
         return tangent_point, num_evals
 
 
@@ -451,6 +451,9 @@ class TangentAttack(object):
                 logit = self.model(images.cuda())
             pred = logit.argmax(dim=1)
             correct = pred.eq(true_labels.cuda()).float()  # shape = (batch_size,)
+            if correct.int().item() == 0: # we must skip any image that is classified incorrectly before attacking, otherwise this will cause infinity loop in later procedure
+                log.info("{}-th original image is classified incorrectly, skip!".format(batch_index+1))
+                continue
             selected = torch.arange(batch_index * args.batch_size, min((batch_index + 1) * args.batch_size, self.total_images))
             if args.targeted:
                 if args.target_type == 'random':

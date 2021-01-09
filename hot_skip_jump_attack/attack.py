@@ -150,6 +150,7 @@ class HotSkipJumpAttack(object):
                     high = mid
                 else:
                     low = mid
+            # Sometimes, the found `high` is so tiny that the difference between initialization and sample is very very small, this case will cause inifinity loop
             initialization = (1 - high) * sample + high * random_noise
         else:
             initialization = target_images
@@ -309,7 +310,7 @@ class HotSkipJumpAttack(object):
         images = images.squeeze()
         if target_images is not None:
             target_images = target_images.squeeze()
-        # Initialize.
+        # Initialize. Note that if the original image is already classified incorrectly, the difference between the found initialization and sample is very very small, this case will lead to inifinity loop later.
         perturbed, num_eval = self.initialize(images, target_images, true_labels, target_labels)
         # log.info("after initialize")
         query += num_eval
@@ -394,17 +395,20 @@ class HotSkipJumpAttack(object):
         success_stop_queries = torch.clamp(success_stop_queries, 0, self.maximum_queries)
         return perturbed, query, success_stop_queries, dist, (dist <= self.epsilon)
 
-    def attack_all_images(self, args, arch_name, target_model, result_dump_path):
+    def attack_all_images(self, args, arch_name, result_dump_path):
 
         for batch_index, (images, true_labels) in enumerate(self.dataset_loader):
-            if args.dataset == "ImageNet" and target_model.input_size[-1] != 299:
+            if args.dataset == "ImageNet" and self.model.input_size[-1] != 299:
                 images = F.interpolate(images,
-                                       size=(target_model.input_size[-2], target_model.input_size[-1]), mode='bilinear',
+                                       size=(self.model.input_size[-2], self.model.input_size[-1]), mode='bilinear',
                                        align_corners=False)
             with torch.no_grad():
-                logit = target_model(images.cuda())
+                logit = self.model(images.cuda())
             pred = logit.argmax(dim=1)
             correct = pred.eq(true_labels.cuda()).float()  # shape = (batch_size,)
+            if correct.int().item() == 0: # we must skip any image that is classified incorrectly before attacking, otherwise this will cause infinity loop in later procedure
+                log.info("{}-th original image is classified incorrectly, skip!".format(batch_index+1))
+                continue
             selected = torch.arange(batch_index * args.batch_size, min((batch_index + 1) * args.batch_size, self.total_images))
             if args.targeted:
                 if args.target_type == 'random':
@@ -422,7 +426,7 @@ class HotSkipJumpAttack(object):
                 else:
                     raise NotImplementedError('Unknown target_type: {}'.format(args.target_type))
 
-                target_images = self.get_image_of_target_class(self.dataset_name,target_labels, target_model)
+                target_images = self.get_image_of_target_class(self.dataset_name,target_labels, self.model)
             else:
                 target_labels = None
                 target_images = None
@@ -430,7 +434,7 @@ class HotSkipJumpAttack(object):
             adv_images, query, success_query, distortion_with_max_queries, success_epsilon = self.attack(batch_index, images, target_images, true_labels, target_labels)
             distortion_with_max_queries = distortion_with_max_queries.detach().cpu()
             with torch.no_grad():
-                adv_logit = target_model(adv_images.cuda())
+                adv_logit = self.model(adv_images.cuda())
             adv_pred = adv_logit.argmax(dim=1)
             ## Continue query count
             not_done = correct.clone()
@@ -449,10 +453,10 @@ class HotSkipJumpAttack(object):
         log.info('{} is attacked finished ({} images)'.format(arch_name, self.total_images))
         log.info('Saving results to {}'.format(result_dump_path))
         meta_info_dict = {"avg_correct": self.correct_all.mean().item(),
-                          "avg_not_done": self.not_done_all[self.correct_all.byte()].mean().item(),
-                          "mean_query": self.success_query_all[self.success_all.byte()].mean().item(),
-                          "median_query": self.success_query_all[self.success_all.byte()].median().item(),
-                          "max_query": self.success_query_all[self.success_all.byte()].max().item(),
+                          "avg_not_done": self.not_done_all[self.correct_all.bool()].mean().item(),
+                          "mean_query": self.success_query_all[self.success_all.bool()].mean().item(),
+                          "median_query": self.success_query_all[self.success_all.bool()].median().item(),
+                          "max_query": self.success_query_all[self.success_all.bool()].max().item(),
                           "correct_all": self.correct_all.detach().cpu().numpy().astype(np.int32).tolist(),
                           "not_done_all": self.not_done_all.detach().cpu().numpy().astype(np.int32).tolist(),
                           "success_all":self.success_all.detach().cpu().numpy().astype(np.int32).tolist(),
@@ -604,5 +608,5 @@ if __name__ == "__main__":
         attacker = HotSkipJumpAttack(model, args.dataset, 0, 1.0, model.input_size[-2], model.input_size[-1], IN_CHANNELS[args.dataset],
                                      args.norm, args.epsilon, args.num_iterations, gamma=args.gamma, stepsize_search = args.stepsize_search,
                                      max_num_evals=1e4, init_num_evals = 100, maximum_queries=args.max_queries)
-        attacker.attack_all_images(args, arch, model, save_result_path)
+        attacker.attack_all_images(args, arch, save_result_path)
         model.cpu()
