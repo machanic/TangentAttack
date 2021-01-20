@@ -94,7 +94,7 @@ def sample_hypersphere(n_samples, sample_shape, radius, sample_gen=None, seed=No
         gauss = torch.from_numpy(np.random.normal(size=(n_samples, np.prod(sample_shape))))
 
     # Norm to 1
-    norm = torch.norm(gauss, p=2, dim=1)
+    norm = torch.linalg.norm(gauss, ord=2, dim=1)
     perturbation = (gauss / torch.unsqueeze(norm,1)) * radius
     perturbation = perturbation.view([n_samples] + sample_shape)
     return perturbation

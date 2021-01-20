@@ -108,7 +108,7 @@ class BiasedBoundaryAttack(object):
         x1 = x_start.float()
         x2 = x_orig.float()
         diff = x2 - x1
-        while torch.norm(diff, p=self.ord) > eps:
+        while torch.linalg.norm(diff) > eps:
             i += 1
 
             x_candidate = x1 + 0.5 * diff
@@ -138,12 +138,14 @@ class BiasedBoundaryAttack(object):
 
         dists = torch.empty(X_targets.size(0), dtype=torch.float32).to(X_targets.device)
         for i in range(X_targets.size(0)):
-            d_l2 = torch.norm(X_targets[i] - X_orig,p=self.ord)
+            d_l2 = torch.linalg.norm(X_targets[i] - X_orig)
             dists[i] = d_l2
 
         indices = torch.argsort(dists)
         for index in indices:
             X_target = X_targets[index]
+            if X_target.dim() == 3:
+                X_target = X_target.unsqueeze(0)
             pred_clsid = self.model(X_target).max(1)[1].item()
             if (pred_clsid == label) == is_targeted:
                 log.info("Found an image of the target class, d_l2={:.3f}.".format(dists[index]))
@@ -172,8 +174,8 @@ class BiasedBoundaryAttack(object):
         .
 
         :param image: The original (clean) image to perturb.
-        :param label: The target label (if targeted), or the original label (if untargeted).
         :param image_start: The starting point (must be of target class).
+        :param label: The target label (if targeted), or the original label (if untargeted).
         :param n_max_per_batch: How many samples are drawn per "batch". Samples are processed serially (the challenge doesn't allow
                                 batching), but for each sample, the attack dynamically adjusts hyperparams based on the success of
                                 previous samples. This "batch" size is the max number of samples after which hyperparams are reset, and
@@ -217,7 +219,7 @@ class BiasedBoundaryAttack(object):
                 # Mask Bias: recalculate mask from current diff (hopefully this reduces the search space)
                 if recalc_mask_every is not None and last_mask_recalc_calls - n_calls_left_fn(self.query) >= recalc_mask_every:
                     new_mask = torch.abs(X_adv_best - image)
-                    new_mask = new_mask / torch.max(new_mask)
+                    new_mask = new_mask / torch.max(new_mask)             # scale to [0,1]
                     new_mask = torch.sqrt(new_mask)                     # weaken the effect a bit.
                     log.info("{}-th image, recalculated mask. Weighted dimensionality of search space is now {:.0f} (diff: {:.2%}). ".format(
                            image_index+1, torch.sum(new_mask).item(), 1. - torch.sum(new_mask).item() / torch.sum(mask).item()))
@@ -262,22 +264,37 @@ class BiasedBoundaryAttack(object):
                             "source_step": source_step,
                             "spherical_step": spherical_step,
                             "pg_future": pg_future})
-                    distortion = self.count_stop_query_and_distortion(image, candidate, self.query, success_stop_queries, batch_image_positions)
+
                     candidate_label, dist = self._eval_sample(candidate, image)
                     if self.targeted:
                         if candidate_label == label:  # 只有攻击错误成功时，才更新dist_best和X_adv_best
                             if dist.item() < dist_best.item():
                                 X_adv_best = candidate
                                 dist_best = dist
+                                distortion = self.count_stop_query_and_distortion(image, X_adv_best, self.query,
+                                                                                  success_stop_queries,
+                                                                                  batch_image_positions)
+                                log.info(
+                                    "{}-th image, distortion:{:.4f} query:{}".format(image_index + 1, distortion.item(),
+                                                                                     self.query[0].item()))
+                                # log.info("{}-th image,break this batch and candidates".format(image_index+1))
+                                break  # Terminate this batch (don't try the other candidates) and advance.
                     else:
                         if candidate_label != label:
                             if dist.item() < dist_best.item():
                                 X_adv_best = candidate
                                 dist_best = dist
+                                distortion = self.count_stop_query_and_distortion(image, X_adv_best, self.query,
+                                                                                  success_stop_queries,
+                                                                                  batch_image_positions)
+                                log.info(
+                                    "{}-th image, distortion:{:.4f} query:{}".format(image_index + 1, distortion.item(),
+                                                                                     self.query[0].item()))
+                                # log.info("{}-th image,break this batch and candidates".format(image_index + 1))
+                                break  # Terminate this batch (don't try the other candidates) and advance.
                     if self.query[0].item() >= self.maximum_queries:
                         break
-                log.info("{}-th image, distortion:{:.4f} query:{}".format(image_index + 1, distortion.item(),
-                                                                          self.query[0].item()))
+
             success_stop_queries = torch.clamp(success_stop_queries,0,self.maximum_queries)
             return X_adv_best, self.query.clone(), success_stop_queries, dist_best,  (dist_best <= self.epsilon)
         finally:
@@ -320,7 +337,7 @@ class BiasedBoundaryAttack(object):
         # Adapted from FoolBox BoundaryAttack.
 
         unnormalized_source_direction = X_orig.float() - X_adv_current.float()
-        source_norm = torch.norm(unnormalized_source_direction.view(-1), p=2)
+        source_norm = torch.linalg.norm(unnormalized_source_direction)
         source_direction = unnormalized_source_direction / source_norm
 
         # Get perturbation from provided distribution
@@ -332,18 +349,17 @@ class BiasedBoundaryAttack(object):
         dot = torch.vdot(sampling_dir.view(-1), source_direction.view(-1))
         sampling_dir -= dot * source_direction                                      # Project orthogonal to source direction
         sampling_dir *= mask                                                        # Apply regional mask
-        sampling_dir /= torch.norm(sampling_dir.view(-1), p=2)                                # Norming increases magnitude of masked regions
-
+        sampling_dir /= torch.linalg.norm(sampling_dir)                                 # Norming increases magnitude of masked regions
         # If available: Bias the spherical dirs in direction of the adversarial gradient, which is projected onto the sphere
         if pgs_current is not None:
             # We have a bunch of gradients that we can try. Randomly select one.
             # NOTE: we found this to perform better than simply averaging the gradients.
             pg_current = pgs_current[np.random.randint(0, len(pgs_current))]
             pg_current *= mask
-            pg_current /= torch.norm(pg_current.view(-1),p=2)
+            pg_current /= torch.linalg.norm(pg_current)
 
             sampling_dir = (1. - pg_factor) * sampling_dir + pg_factor * pg_current
-            sampling_dir /= torch.norm(sampling_dir.view(-1),p=2)
+            sampling_dir /= torch.linalg.norm(sampling_dir)
 
         sampling_dir *= spherical_step * source_norm                                # Norm to length stepsize*(dist from src)
 
@@ -358,7 +374,7 @@ class BiasedBoundaryAttack(object):
         # ===========================================================
         new_source_direction = X_orig - spherical_candidate
 
-        new_source_direction_norm = torch.norm(new_source_direction.view(-1),p=2)
+        new_source_direction_norm = torch.linalg.norm(new_source_direction)
         new_source_direction /= new_source_direction_norm
         spherical_candidate = X_orig - source_norm * new_source_direction           # Snap sph.c. onto sphere
 
@@ -394,7 +410,7 @@ class BiasedBoundaryAttack(object):
             return None
 
         source_direction = x_orig - x_current
-        source_norm = torch.norm(source_direction, p=2).item() # float
+        source_norm = torch.linalg.norm(source_direction).item() # float
         source_direction = source_direction / source_norm
 
         # Take a tiny step towards the source before calculating the gradient. This marginally improves our results.
@@ -418,7 +434,7 @@ class BiasedBoundaryAttack(object):
             # Project the gradients.
             dot = torch.vdot(gradients[i].view(-1), source_direction.view(-1))
             projected_gradient = gradients[i] - dot * source_direction          # Project orthogonal to source direction
-            projected_gradient /= torch.norm(projected_gradient, p=2)            # Norm to length 1
+            projected_gradient /= torch.linalg.norm(projected_gradient)            # Norm to length 1
             gradient_batch[i] = projected_gradient
 
         return gradient_batch
@@ -532,6 +548,8 @@ class BiasedBoundaryAttack(object):
                                                                                     recalc_mask_every=(1 if self.USE_MASK_BIAS else None))
             distortion_best = distortion_best.detach().cpu()
             with torch.no_grad():
+                if adv_images.dim() == 3:
+                    adv_images = adv_images.unsqueeze(0)
                 adv_logit = self.model(adv_images.cuda())
             adv_pred = adv_logit.argmax(dim=1)
             ## Continue query count
@@ -547,7 +565,6 @@ class BiasedBoundaryAttack(object):
                 value_all = getattr(self, key + "_all")
                 value = eval(key)
                 value_all[selected] = value.detach().float().cpu()
-
         log.info('{} is attacked finished ({} images)'.format(arch_name, self.total_images))
         log.info('Saving results to {}'.format(result_dump_path))
         meta_info_dict = {"avg_correct": self.correct_all.mean().item(),
@@ -601,6 +618,7 @@ if __name__ == "__main__":
                choices=['CIFAR-10', 'CIFAR-100', 'ImageNet', "FashionMNIST", "MNIST", "TinyImageNet"], help='which dataset to use')
     parser.add_argument('--arch', default=None, type=str, help='network architecture')
     parser.add_argument('--all_archs', action="store_true")
+    parser.add_argument('--surrogate_arch',type=str,default="inceptionresnetv2")
     parser.add_argument('--targeted', action="store_true")
     parser.add_argument('--target_type',type=str, default='increment', choices=['random', 'least_likely',"increment"])
     parser.add_argument('--exp-dir', default='logs', type=str, help='directory to save results and logs')
@@ -610,6 +628,8 @@ if __name__ == "__main__":
     parser.add_argument('--use_mask_bias', action="store_true")
     parser.add_argument('--use_surrogate_bias',action="store_true")
     parser.add_argument('--defense_model',type=str, default=None)
+    parser.add_argument('--defense_norm', type=str, choices=["l2", "linf"], default='linf')
+    parser.add_argument('--defense_eps', type=str,default="")
     parser.add_argument('--max_queries',type=int, default=10000)
 
     args = parser.parse_args()
@@ -638,7 +658,13 @@ if __name__ == "__main__":
             log_file_path = osp.join(args.exp_dir, 'run.log')
     elif args.arch is not None:
         if args.attack_defense:
-            log_file_path = osp.join(args.exp_dir, 'run_defense_{}_{}.log'.format(args.arch, args.defense_model))
+            if args.defense_model == "adv_train_on_ImageNet":
+                log_file_path = osp.join(args.exp_dir,
+                                         "run_defense_{}_{}_{}_{}.log".format(args.arch, args.defense_model,
+                                                                               args.defense_norm,
+                                                                               args.defense_eps))
+            else:
+                log_file_path = osp.join(args.exp_dir, 'run_defense_{}_{}.log'.format(args.arch, args.defense_model))
         else:
             log_file_path = osp.join(args.exp_dir, 'run_{}.log'.format(args.arch))
     set_log_file(log_file_path)
@@ -649,6 +675,7 @@ if __name__ == "__main__":
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
+    torch.cuda.manual_seed(args.seed)
     if args.all_archs:
         archs = MODELS_TEST_STANDARD[args.dataset]
     else:
@@ -661,20 +688,24 @@ if __name__ == "__main__":
     print_args(args)
     substitude_model = None
     if args.use_surrogate_bias:
-        substitude_model = StandardModel(args.dataset,"inceptionresnetv2",no_grad=False,load_pretrained=True)
+        substitude_model = StandardModel(args.dataset,args.surrogate_arch,no_grad=False,load_pretrained=True)
         substitude_model.cuda()
         substitude_model.eval()
 
     for arch in archs:
         if args.attack_defense:
-            save_result_path = args.exp_dir + "/{}_{}_result.json".format(arch, args.defense_model)
+            if args.defense_model == "adv_train_on_ImageNet":
+                save_result_path = args.exp_dir + "/{}_{}_{}_{}_result.json".format(arch, args.defense_model,
+                                                                                    args.defense_norm, args.defense_eps)
+            else:
+                save_result_path = args.exp_dir + "/{}_{}_result.json".format(arch, args.defense_model)
         else:
             save_result_path = args.exp_dir + "/{}_result.json".format(arch)
         if os.path.exists(save_result_path):
             continue
         log.info("Begin attack {} on {}, result will be saved to {}".format(arch, args.dataset, save_result_path))
         if args.attack_defense:
-            model = DefensiveModel(args.dataset, arch, no_grad=True, defense_model=args.defense_model)
+            model = DefensiveModel(args.dataset, arch, no_grad=True, defense_model=args.defense_model, norm=args.defense_norm, eps=args.defense_eps)
         else:
             model = StandardModel(args.dataset, arch, no_grad=True)
         model.cuda()

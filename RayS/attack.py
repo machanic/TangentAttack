@@ -229,6 +229,7 @@ class RayS(object):
                           "query_all": self.query_all.detach().cpu().numpy().astype(np.int32).tolist(),
                       "success_query_all": self.success_query_l2_all.detach().cpu().numpy().astype(
                                   np.int32).tolist(),
+                                  "success_all": self.success_l2_all.detach().cpu().numpy().astype(np.int32).tolist(),
                           "distortion": self.distortion_l2_all,
                           "avg_distortion_with_max_queries": self.l2_distortion_with_max_queries_all.mean().item(),
                           "args": args_l2}
@@ -249,6 +250,7 @@ class RayS(object):
                                   "query_all": self.query_all.detach().cpu().numpy().astype(np.int32).tolist(),
                                     "success_query_all": self.success_query_linf_all.detach().cpu().numpy().astype(
                                         np.int32).tolist(),
+                                    "success_all": self.success_linf_all.detach().cpu().numpy().astype(np.int32).tolist(),
                                   "distortion": self.distortion_linf_all,
                                   "avg_distortion_with_max_queries": self.linf_distortion_with_max_queries_all.mean().item(),
                                   "args": args_linf}

@@ -510,6 +510,7 @@ class GeoDA(object):
                           "query_all": self.query_all.detach().cpu().numpy().astype(np.int32).tolist(),
                           "success_query_all": self.success_query_all.detach().cpu().numpy().astype(np.int32).tolist(),
                           "distortion": self.distortion_all,
+                          "success_all":self.success_all.detach().cpu().numpy().astype(np.int32).tolist(),
                           "avg_distortion_with_max_queries": self.distortion_with_max_queries_all.mean().item(),
                           "args": vars(args)}
         with open(result_dump_path, "w") as result_file_obj:
