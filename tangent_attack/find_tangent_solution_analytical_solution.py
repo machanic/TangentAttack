@@ -88,9 +88,14 @@ if __name__ == "__main__":
     # figure 1
     normal_vector = torch.zeros(2).float()
     normal_vector[-1] = 1
-    t = TangentFinder(torch.tensor([2,2]).float(), torch.tensor([4,3]).float(), 1, normal_vector, "l2")
+    normal_vector /= torch.norm(normal_vector)
+    x = torch.tensor([1,2]).float()
+    t = TangentFinder(x, torch.tensor([4,3]).float(), 2, normal_vector, "l2")
     tangent = t.compute_tangent_point()
     print(tangent)
     # 计算直线和平面的交点
-    print(compute_line_plane_intersect_point(torch.tensor([2,2]).float(), tangent, torch.tensor([4,3]).float(),
+    print(compute_line_plane_intersect_point(x, torch.tensor([4,4]).float(), torch.tensor([4,3]).float(),
+                                             normal_vector))
+    print(compute_line_plane_intersect_point(x, tangent,
+                                             torch.tensor([4, 3]).float(),
                                              normal_vector))

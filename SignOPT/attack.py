@@ -14,7 +14,7 @@ import glog as log
 
 from config import MODELS_TEST_STANDARD, IN_CHANNELS
 from dataset.dataset_loader_maker import DataLoaderMaker
-from SignOPT.sign_opt_l2_norm_attack import SignOptL2Norm
+from SignOPT.sign_opt_l2_norm_attack_random_start_point import SignOptL2Norm  # FIXME 紧急修改成random sampled target class image
 from models.defensive_model import DefensiveModel
 from models.standard_model import StandardModel
 
@@ -30,6 +30,18 @@ def distance(x_adv, x, norm='l2'):
 
 def get_exp_dir_name(dataset,  norm, targeted, target_type, args):
     target_str = "untargeted" if not targeted else "targeted_{}".format(target_type)
+    if targeted:  # FIXME 临时修改为随机target class image 初始化
+        if args.svm:
+            if args.attack_defense:
+                dirname = 'SVMOPT_random_start_point_on_defensive_model-{}-{}-{}'.format(dataset, norm, target_str)
+            else:
+                dirname = 'SVMOPT_random_start_point-{}-{}-{}'.format(dataset, norm, target_str)
+        else:
+            if args.attack_defense:
+                dirname = 'SignOPT_random_start_point_on_defensive_model-{}-{}-{}'.format(dataset, norm, target_str)
+            else:
+                dirname = 'SignOPT_random_start_point-{}-{}-{}'.format(dataset, norm, target_str)
+        return dirname
     if args.svm:
         if args.attack_defense:
             dirname = 'SVMOPT_on_defensive_model-{}-{}-{}'.format(dataset,  norm, target_str)
@@ -81,7 +93,7 @@ def get_parse_args():
     parser.add_argument('--attack_defense', action="store_true")
     parser.add_argument('--defense_model', type=str, default=None)
     parser.add_argument('--defense_norm', type=str, choices=["l2", "linf"], default='linf')
-    parser.add_argument('--defense_eps', type=str)
+    parser.add_argument('--defense_eps', type=str,default="")
     parser.add_argument('--svm',action='store_true',help="using this option is SVM-OPT attack")
     parser.add_argument('--tot',type=float,)
     args = parser.parse_args()
@@ -102,8 +114,9 @@ if __name__ == "__main__":
         # If a json file is given, use the JSON file as the base, and then update it with args
         defaults = json.load(open(args.json_config))[args.dataset][args.norm]
         arg_vars = vars(args)
-        arg_vars = {k: arg_vars[k] for k in arg_vars if arg_vars[k] is not None}
-        defaults.update(arg_vars)
+        arg_vars_ = {k: arg_vars[k] for k in arg_vars if arg_vars[k] is not None}
+        defaults.update(arg_vars_)
+        defaults.update({k: v for k, v in arg_vars.items() if k not in defaults})
         args = SimpleNamespace(**defaults)
         args_dict = defaults
     if args.targeted:
@@ -162,8 +175,6 @@ if __name__ == "__main__":
         model.cuda()
         model.eval()
         tot = None
-        if args.dataset == "ImageNet": #or (args.attack_defense and args.svm):
-            tot = 1e-4  # 根据实验的经验人为指定
         if args.tot is not None and args.tot !=0.0:
             tot = args.tot
         attacker = SignOptL2Norm(model, args.dataset, args.epsilon, args.targeted,

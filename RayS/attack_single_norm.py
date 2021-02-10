@@ -254,6 +254,8 @@ if __name__ == "__main__":
     parser.add_argument('--seed', default=0, type=int, help='random seed')
     parser.add_argument('--attack_defense',action="store_true")
     parser.add_argument('--defense_model',type=str, default=None)
+    parser.add_argument('--defense_norm', type=str, choices=["l2", "linf"], default='linf')
+    parser.add_argument('--defense_eps', type=str, default="")
     parser.add_argument('--max_queries',type=int,default=10000)
 
     args = parser.parse_args()
@@ -286,7 +288,13 @@ if __name__ == "__main__":
             log_file_path = osp.join(args.exp_dir, 'run.log')
     elif args.arch is not None:
         if args.attack_defense:
-            log_file_path = osp.join(args.exp_dir, 'run_defense_{}_{}.log'.format(args.arch, args.defense_model))
+            if args.defense_model == "adv_train_on_ImageNet":
+                log_file_path = osp.join(args.exp_dir,
+                                         "run_defense_{}_{}_{}_{}.log".format(args.arch, args.defense_model,
+                                                                              args.defense_norm,
+                                                                              args.defense_eps))
+            else:
+                log_file_path = osp.join(args.exp_dir, 'run_defense_{}_{}.log'.format(args.arch, args.defense_model))
         else:
             log_file_path = osp.join(args.exp_dir, 'run_{}.log'.format(args.arch))
     set_log_file(log_file_path)
@@ -335,14 +343,18 @@ if __name__ == "__main__":
 
     for arch in archs:
         if args.attack_defense:
-            save_result_path = args.exp_dir + "/{}_{}_result.json".format(arch, args.defense_model)
+            if args.defense_model == "adv_train_on_ImageNet":
+                save_result_path = args.exp_dir + "/{}_{}_{}_{}_result.json".format(arch, args.defense_model,
+                                                                                    args.defense_norm, args.defense_eps)
+            else:
+                save_result_path = args.exp_dir + "/{}_{}_result.json".format(arch, args.defense_model)
         else:
             save_result_path = args.exp_dir + "/{}_result.json".format(arch)
         if os.path.exists(save_result_path):
             continue
         log.info("Begin attack {} on {}, result will be saved to {}".format(arch, args.dataset, save_result_path))
         if args.attack_defense:
-            model = DefensiveModel(args.dataset, arch, no_grad=True, defense_model=args.defense_model)
+            model = DefensiveModel(args.dataset, arch, no_grad=True, defense_model=args.defense_model,norm=args.defense_norm, eps=args.defense_eps)
         else:
             model = StandardModel(args.dataset, arch, no_grad=True)
         model.cuda()

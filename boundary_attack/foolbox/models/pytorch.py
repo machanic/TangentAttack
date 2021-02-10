@@ -67,8 +67,8 @@ class PyTorchModel(DifferentiableModel):
         # lazy import
         import torch
 
-        inputs, _ = self._process_input(inputs)
-        n = len(inputs)
+        # inputs, _ = self._process_input(inputs)
+        n = inputs.shape[0]
         inputs = torch.from_numpy(inputs).to(self.device)
 
         predictions = self._model(inputs)

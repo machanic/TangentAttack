@@ -569,9 +569,9 @@ class BiasedBoundaryAttack(object):
         log.info('Saving results to {}'.format(result_dump_path))
         meta_info_dict = {"avg_correct": self.correct_all.mean().item(),
                           "avg_not_done": self.not_done_all[self.correct_all.bool()].mean().item(),
-                          "mean_query": self.success_query_all[self.success_all.bool()].mean().item(),
-                          "median_query": self.success_query_all[self.success_all.bool()].median().item(),
-                          "max_query": self.success_query_all[self.success_all.bool()].max().item(),
+                          "mean_query": self.success_query_all[self.success_all.bool()].mean().item() if self.success_all.sum().item() > 0 else 0,
+                          "median_query": self.success_query_all[self.success_all.bool()].median().item() if self.success_all.sum().item() > 0 else 0,
+                          "max_query": self.success_query_all[self.success_all.bool()].max().item() if self.success_all.sum().item() > 0 else 0,
                           "correct_all": self.correct_all.detach().cpu().numpy().astype(np.int32).tolist(),
                           "not_done_all": self.not_done_all.detach().cpu().numpy().astype(np.int32).tolist(),
                           "success_all":self.success_all.detach().cpu().numpy().astype(np.int32).tolist(),

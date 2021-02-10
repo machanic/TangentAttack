@@ -19,7 +19,7 @@ from .blended_noise import BlendedUniformNoiseAttack
 
 import numpy as np
 from numpy.linalg import norm
-
+import glog as log
 
 class BoundaryAttack(Attack):
     """A powerful adversarial attack that requires neither gradients
@@ -59,6 +59,7 @@ class BoundaryAttack(Attack):
             unpack=True,
             iterations=5000,
             max_directions=25,
+            max_queries=10000,
             starting_point=None,
             initialization_attack=None,
             log_every_n_steps=1,
@@ -142,16 +143,16 @@ class BoundaryAttack(Attack):
         self.verbose = verbose
 
         if not verbose:
-            print('run with verbose=True to see details')
+            log.info('run with verbose=True to see details')
 
         if alternative_generator:
             self.generate_candidate = self.generate_candidate_alternative
         else:
             self.generate_candidate = self.generate_candidate_default
-
         return self._apply_outer(
             input_or_adv,
             iterations=iterations,
+            max_queries=max_queries,
             tune_batch_size=tune_batch_size,
             threaded_rnd=threaded_rnd,
             threaded_gen=threaded_gen)
@@ -182,6 +183,7 @@ class BoundaryAttack(Attack):
             pool,
             a,
             iterations,
+            max_queries,
             tune_batch_size,
             threaded_rnd,
             threaded_gen):
@@ -614,7 +616,8 @@ class BoundaryAttack(Attack):
             self.stats_distances[step - 1] = a.distance.value
             if self.save_all_steps:
                 self.stats_all_steps[step - 1] = a.perturbed.copy()
-
+            if self.stats_query_counts[step - 1] >= max_queries:
+                break
         # ===========================================================
         # Stop threads that generate random numbers
         # ===========================================================
@@ -647,9 +650,8 @@ class BoundaryAttack(Attack):
         init_attack = self._initialization_attack
 
         if a.perturbed is not None:
-            print(
-                'Attack is applied to a previously found adversarial.'
-                ' Continuing search for better adversarials.')
+            log.info(
+                'Attack is applied to a previously found adversarial. Continuing search for better adversarials.')
             if starting_point is not None:  # pragma: no cover
                 warnings.warn(
                     'Ignoring starting_point parameter because the attack'
@@ -682,7 +684,7 @@ class BoundaryAttack(Attack):
     def log_step(self, step, distance, message='', always=False):
         if not always and step % self.log_every_n_steps != 0:
             return
-        print('Step {}: {:.5e}, stepsizes = {:.1e}/{:.1e}: {}'.format(
+        log.info('Step {}: {:.5e}, stepsizes = {:.1e}/{:.1e}: {}'.format(
             step,
             distance.value,
             self.spherical_step,
@@ -1186,7 +1188,7 @@ class BoundaryAttack(Attack):
 
     def printv(self, *args, **kwargs):
         if self.verbose:
-            print(*args, **kwargs)
+            log.info(*args, **kwargs)
 
 
 class DummyExecutor(Executor):

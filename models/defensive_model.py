@@ -99,6 +99,7 @@ class DefensiveModel(nn.Module):
                 filtered_state_dict[module.replace("module.","").replace("cnn.","")] = params
             self.feature_scatter.load_state_dict(filtered_state_dict)
             self.model = self.feature_scatter.basic_net
+            log.info("Load feature scatter model from {}".format(model_path))
         elif defense_model == "TRADES":
             model_path = '{}/train_pytorch_model/adversarial_train/TRADES/{}@{}@norm_{}*.pth.tar'.format(
                 PY_ROOT, dataset, arch, norm)
@@ -500,7 +501,7 @@ class DefensiveModel(nn.Module):
             self.load_weight_from_pth_checkpoint(model, trained_model_path)
             # model.load_state_dict(torch.load(trained_model_path, map_location=lambda storage, location: storage)["state_dict"])
         elif dataset == 'ImageNet':
-            if arch == "resnet50" and  defense_model == "adv_train_on_ImageNet":
+            if arch == "resnet50" and defense_model == "adv_train_on_ImageNet":
                 model = resnet50_imagenet_adv_train(pretrained=False,progress=True)
                 self.load_weight_from_ImageNet_adv_train_pth_checkpoint(model,trained_model_path)
                 log.info("loading adv train model {}".format(trained_model_path))

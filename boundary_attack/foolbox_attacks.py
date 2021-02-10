@@ -1,64 +1,63 @@
 #!/usr/bin/env python3
 import sys
 import os
+from types import SimpleNamespace
+
+sys.path.append(os.getcwd())
+
 import os.path as osp
-import pickle
 import argparse
 import json
 import random
-from collections import OrderedDict
-import string
+from collections import OrderedDict, defaultdict
 import socket
 import getpass
-import copy
-from datetime import datetime
-import hashlib
+
 import torch
 import numpy as np
 
-from models import make_victim_model
-from loaders import make_loader
-
-import biased_boundary_attack.foolbox as foolbox
-
+from config import CLASS_NUM, IMAGE_DATA_ROOT
+from dataset.target_class_dataset import CIFAR10Dataset, CIFAR100Dataset, ImageNetDataset
+from dataset.dataset_loader_maker import DataLoaderMaker
+from models.standard_model import StandardModel
+from models.defensive_model import DefensiveModel
+import glog as log
+from torch.nn import functional as F
+import boundary_attack.foolbox as foolbox
+from boundary_attack.foolbox.attacks.boundary_attack import BoundaryAttack
 
 def parse_args():
     """
     Parse input arguments
     """
     parser = argparse.ArgumentParser(description='')
-    parser.add_argument('--exp-dir', default='output/debug', type=str,
-                        help='directory to save results and logs')
-    parser.add_argument('--dataset', default='mnist', type=str, choices=['mnist01', 'mnist', 'cifar10', 'imagenet'],
+    parser.add_argument("--gpu", type=int, required=True)
+    parser.add_argument('--exp-dir', default='logs', type=str, help='directory to save results and logs')
+    parser.add_argument('--dataset', required=True, type=str, choices=['CIFAR-10', 'CIFAR-100', 'ImageNet', 'TinyImageNet'],
                         help='which dataset to use')
     parser.add_argument('--phase', default='test', type=str, choices=['train', 'val', 'valv2', 'test'],
                         help='train, val, test')
-    parser.add_argument('--num-image', default=1000, type=int,
-                        help='number of images to attack')
-    parser.add_argument('--compare-with', default='', type=str,
-                        help='specify reference experiment exp dir to make a fair comparison')
-    parser.add_argument('--part-id', default=0, type=int,
-                        help='args.part_id is the id of current part among all args.num_part')
-    parser.add_argument('--num-part', default=1, type=int,
-                        help='the task could be split in several parts, args.num_part is the total number of parts')
-    parser.add_argument('--victim-arch', default='carlinet', type=str,
+    parser.add_argument('--arch', default=None, type=str,
                         help='victim network architecture')
-    parser.add_argument('--attack-type', default='untargeted', choices=['untargeted', 'targeted'],
-                        help='type of attack, could be targeted or untargeted')
-    parser.add_argument('--norm-type', default='l2', type=str, choices=['l2'],
+    parser.add_argument('--all_archs', action="store_true")
+    parser.add_argument('--targeted', action="store_true")
+    parser.add_argument('--target_type', type=str, default='increment', choices=['random', 'least_likely', "increment"])
+    parser.add_argument('--norm', default='l2', type=str, choices=['l2'],
                         help='l2 attack or linf attack')
-    parser.add_argument('--attack-method', default='bapp', choices=['ba', 'cw', 'bapp'],
+    parser.add_argument('--attack-method', default='ba', choices=['ba', 'cw', 'bapp'],
                         help='attack method')
     parser.add_argument('--save-all-steps', action='store_true',
                         help='save all intermediate adversarial images')
-    parser.add_argument('--seed', default=1234, type=int,
+    parser.add_argument('--seed', default=0, type=int,
                         help='random seed')
     parser.add_argument('--ssh', action='store_true',
                         help='whether or not we are executing command via ssh. '
                              'If set to True, we will not print anything to screen and only redirect them to log file')
 
+    parser.add_argument('--json-config', type=str, default='./configures/boundary_attack.json',
+                        help='a configures file to be passed in instead of arguments')
     # bapp (a.k.a., hsja) parameters
-    parser.add_argument('--bapp-iteration', default=64, type=int,
+    parser.add_argument('--bapp-iteration', default=132, type=int,
                         help='boundary attack++: number of iterations')
     parser.add_argument('--bapp-initial-num-eval', default=100, type=int,
                         help='boundary attack++: initial number of evaluations for gradient estimation')
@@ -75,7 +74,7 @@ def parse_args():
                         help='boundary attack++: internal dtype. foolbox default value is float64')
 
     # boundary attack parameters
-    parser.add_argument('--ba-iteration', default=5000, type=int,
+    parser.add_argument('--ba-iteration', default=1200, type=int,
                         help='boundary attack: number of iterations')
     parser.add_argument('--ba-max-directions', default=25, type=int,
                         help='boundary attack: batch size')
@@ -105,7 +104,12 @@ def parse_args():
                         help='cw learning: initial learning rate')
     parser.add_argument('--cw-initial-const', default=0.01, type=float,
                         help='cw attack: initial constant')
-
+    parser.add_argument('--attack_defense', action="store_true")
+    parser.add_argument('--defense_model', type=str, default=None)
+    parser.add_argument('--max_queries', type=int, default=10000)
+    parser.add_argument('--defense_norm', type=str, choices=["l2", "linf"], default='linf')
+    parser.add_argument('--defense_eps', type=str, default="")
+    parser.add_argument('--epsilon', type=float, help='the lp perturbation bound')
     if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
@@ -113,64 +117,63 @@ def parse_args():
     args = parser.parse_args()
     return args
 
+def get_image_of_target_class(dataset_name, target_labels, target_model):
 
-def main():
+    images = []
+    for label in target_labels:  # length of target_labels is 1
+        if dataset_name == "ImageNet":
+            dataset = ImageNetDataset(IMAGE_DATA_ROOT[dataset_name],label.item(), "validation")
+        elif dataset_name == "CIFAR-10":
+            dataset = CIFAR10Dataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
+        elif dataset_name=="CIFAR-100":
+            dataset = CIFAR100Dataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
+
+        index = np.random.randint(0, len(dataset))
+        image, true_label = dataset[index]
+        image = image.unsqueeze(0)
+        if dataset_name == "ImageNet" and target_model.input_size[-1] != 299:
+            image = F.interpolate(image,
+                                   size=(target_model.input_size[-2], target_model.input_size[-1]), mode='bilinear',
+                                   align_corners=False)
+        with torch.no_grad():
+            logits = target_model(image.cuda())
+        while logits.max(1)[1].item() != label.item():
+            index = np.random.randint(0, len(dataset))
+            image, true_label = dataset[index]
+            image = image.unsqueeze(0)
+            if dataset_name == "ImageNet" and target_model.input_size[-1] != 299:
+                image = F.interpolate(image,
+                                   size=(target_model.input_size[-2], target_model.input_size[-1]), mode='bilinear',
+                                   align_corners=False)
+            with torch.no_grad():
+                logits = target_model(image.cuda())
+        assert true_label == label.item()
+        images.append(torch.squeeze(image))
+    return torch.stack(images) # B,C,H,W
+
+def main(args, result_dump_path):
     # make model
-    log.info('Initializing model {} on {}'.format(args.victim_arch, args.dataset))
-    model = make_victim_model(args.dataset, args.victim_arch, scratch=False).eval().to(device)
-    if args.dataset == 'mnist01':
-        num_classes = 2
-    elif args.dataset in ['mnist', 'cifar10']:
-        num_classes = 10
-    elif args.dataset == 'imagenet':
-        num_classes = 1000
+    log.info('Initializing model {} on {}'.format(args.arch, args.dataset))
+    if args.attack_defense:
+        model = DefensiveModel(args.dataset, args.arch, no_grad=True, defense_model=args.defense_model,
+                               norm=args.defense_norm, eps=args.defense_eps)
     else:
-        raise NotImplementedError('Unknown dataset: {}'.format(args.dataset))
-    fmodel = foolbox.models.PyTorchModel(model, bounds=(0, 1), num_classes=num_classes, device=device)
+        model = StandardModel(args.dataset, args.arch, no_grad=True, load_pretrained=True)
+    model.cuda()
+    model.eval()
+    fmodel = foolbox.models.PyTorchModel(model, bounds=(0, 1), num_classes=CLASS_NUM[args.dataset], device=str(args.device))
     log.info('Foolbox model created')
-
+    distortion_all = defaultdict(OrderedDict)  # key is image index, value is {query: distortion}
+    result_json = {"statistical_details":{}}
+    success_all = []
     # make loader
-    kwargs = dict()
-    if args.dataset == 'imagenet':
-        kwargs['size'] = model.input_size[-1]
-    loader = make_loader(args.dataset, args.phase, 1, args.seed, **kwargs)  # batch size set to 1
-
+    loader = DataLoaderMaker.get_test_attacked_data(args.dataset, args.ba_batch_size)
     # extract image_id_ref from args.compare_with
     # args.compare_with should be the exp_dir of another experiment generated by policy_attack.py
-    if len(args.compare_with) == 0:
-        log.info('args.compare_with is not specified, so we do not load any initial point or image id')
-        image_id_ref = None
-    else:
-        with open(osp.join(args.compare_with, 'config.json'), 'r') as f:
-            compare_with_config = json.load(f)
-        assert args.dataset == compare_with_config['dataset']
-        assert args.phase == compare_with_config['phase']
-        assert args.victim_arch == compare_with_config['victim_arch']
-        image_id_ref = compare_with_config['image_id_ref']
-        assert len(image_id_ref) > 0 and osp.exists(image_id_ref)
-        log.info('We will load image ids from {}, which comes from config of args.compare_with ({})'.format(
-            image_id_ref, args.compare_with))
-
-    # load previously used image ids when training gradient model, if there are any
-    used_image_ids = OrderedDict()
-    used_image_ids['train_seen'] = list()
-    used_image_ids['train_unseen'] = list()
-    used_image_ids['test'] = list()
-    if image_id_ref is not None:
-        with open(osp.join(image_id_ref, 'config.json'), 'r') as f:
-            image_id_ref_config = json.load(f)
-        assert args.dataset == image_id_ref_config['dataset']
-        assert args.phase == image_id_ref_config['phase']
-        for key in used_image_ids.keys():
-            fname = osp.join(image_id_ref, 'results', '{}_image_ids.pth'.format(key))
-            used_image_ids[key] = torch.load(fname).tolist()
-        log.info('Load used image ids from {}'.format(image_id_ref))
-    for key, image_ids in used_image_ids.items():
-        log.info('Found {} used image ids, key: {}'.format(len(image_ids), key))
 
     # these four variables represent type of visited images, and we treat them as boolean tensors
     # we use LongTensor instead of ByteTensor because we will do is_x.sum() later and ByteTensor will overflow
-    is_correct = torch.LongTensor(0)
+    correct_all = []
     is_ignore = torch.LongTensor(0)
     is_image_type = OrderedDict([
         ('train_seen', torch.LongTensor(0)),
@@ -178,173 +181,54 @@ def main():
         ('val', torch.LongTensor(0)),
         ('test', torch.LongTensor(0))
     ])
-    num_image_each_type = OrderedDict([
-        ('train_seen', min(args.num_image, len(used_image_ids['train_seen']))),
-        ('train_unseen', 0),
-        ('val', 0),
-        ('test', args.num_image)
-    ])
-    log.info('Number of images included in the attacking task:')
-    for key in num_image_each_type.keys():
-        log.info('    {}: {}'.format(key, num_image_each_type[key]))
-
-    # print function we call in the end of each iteration and when whole attack ends
-    def print_progress(title):
-        # print attack progress
-        log.info(title)
-        log.info('  visited images: {}'.format(is_correct.numel()))
-        log.info('  ignored images: {}'.format(is_ignore.sum().item()))
-        log.info('  correct images: {}'.format(is_correct.sum().item()))
-        for key in is_image_type.keys():
-            log.info('  correct {} images: {} not ignored, {} in total'.format(
-                key, (is_correct & is_image_type[key] & (1 - is_ignore)).sum().item(),
-                (is_correct & is_image_type[key]).sum().item()))
-
     # attack
-    for batch_index, (image_id, image, label) in enumerate(loader):
-        # batch attack is not supported yet
-        assert image_id.numel() == 1
-
+    for batch_index, (image, label) in enumerate(loader):
+        if args.dataset == "ImageNet" and model.input_size[-1] != 299:
+            image = F.interpolate(image,
+                                   size=(model.input_size[-2], model.input_size[-1]), mode='bilinear',
+                                   align_corners=False)
         # extract inputs
-        assert image.ndimension() == 4
+        assert image.dim() == 4
         assert image.shape[0] == 1
         image = image.numpy()[0]
+        # load init point and init query
+        init_adv_image = init_distance = None
+        if args.targeted:
+            target_label = torch.fmod(label + 1, CLASS_NUM[args.dataset])
+            init_adv_image = get_image_of_target_class(args.dataset, target_label, model).detach().cpu().numpy()[0]
+        true_label = label.clone()
         label = label.item()
-        image_id = image_id.item()
         pred = int(np.argmax(fmodel.forward_one(image)))
 
-        # for debug
-        # if image_id != 8477:
-        #     continue
-
         # append 0, and we will modify them later
-        is_correct = torch.cat((is_correct, torch.LongTensor([0])))
         is_ignore = torch.cat((is_ignore, torch.LongTensor([0])))
-        for image_type in is_image_type.keys():
-            is_image_type[image_type] = torch.cat((is_image_type[image_type], torch.LongTensor([0])))
-
-        # determine type of this image, use used_image_ids to determine the type
-        if image_id in used_image_ids['train_seen']:
-            # this image was used as training set in train_grad_model.py
-            image_type = 'train_seen'
-        elif image_id in used_image_ids['train_unseen']:
-            # this image was not used as training set in train_grad_model.py
-            # sometimes we also use these images to select the best model, so we can also treat them as 'val'
-            # image_type = 'train_unseen'
-            image_type = 'val'
-        elif image_id in used_image_ids['test']:
-            # this image was used to select the best model in train_grad_model.py
-            image_type = 'val'
-        else:
-            # this image is brand new
-            image_type = 'test'
-        is_image_type[image_type][-1] = 1
 
         # fill in is_correct, we will use is_correct to check is_ignore later
-        is_correct[-1] = pred == label
+        correct_all.append(int(pred == label))
 
-        # check whether we have visit enough images
-        # we do not check this in the beginning of loop since values of is_* variables are not determined
-        # if we have visited num_train_seen_image train images then we should ignore train_seen images later
-        # if we have visited num_train_unseen_image train images then we should ignore train_unseen images later
-        # if we have visited num_val_image val images then we should ignore val images later
-        # if we have visited num_test_image test images then we should ignore test images later
-        # then we should check args.num_part and args.part_id, if pass, we should go on to attack this image
-
-        is_meet_each_type = OrderedDict([
-            (key, (is_correct & is_image_type[key])[:-1].sum().item() >= num_image_each_type[key])
-            for key in is_image_type.keys()
-        ])
-        if all(is_meet_each_type.values()):
-            # attack task is done
-            is_ignore[-1] = 1
-            log.info('We have visited enough train_seen/train_unseen/val/test images, attack task is done')
-            break
-        if not is_correct[-1]:
-            # if misclassified, we ignore directly
-            is_ignore[-1] = 1
-            log.info('Ignore {}-th image: image_id: {}, since it is misclassified'.format(
-                batch_index, image_id))
-        else:
-            # current image is correctly classified
-            assert is_image_type[image_type][-1].item()
-            if is_meet_each_type[image_type]:
-                # we've seen enough that type of images, so we should ignore
-                is_ignore[-1] = 1
-                log.info('Ignore {}-th image: image_id: {}, since we have visited enough ({}) {} images'.format(
-                    batch_index, image_id, num_image_each_type[image_type], image_type))
-            else:
-                # we've not visited enough that type of images, now we should check part related arguments
-                if args.num_part == 1:
-                    # if there is only 1 part, we should go on to attack it
-                    pass
-                else:
-                    # goes here indicates is_meet_each_type[key] is False, so there must be at least 1 image
-                    assert num_image_each_type[image_type] > 0
-                    num_image_each_part = num_image_each_type[image_type] // args.num_part
-                    assert num_image_each_part > 0
-                    current_num = (is_correct & is_image_type[image_type]).sum().item() - 1  # make index starts from 0
-                    current_image_part_id = min(current_num // num_image_each_part, args.num_part - 1)
-                    if current_image_part_id == args.part_id:
-                        # current part matches args.part_id, we should run
-                        pass
-                    else:
-                        is_ignore[-1] = 1
-                        log.info(
-                            'Ignore {}-th image: image_id: {}, since part of current image is {} '
-                            '({} images for each part) while args.part_id is {}'.format(
-                                batch_index, image_id, current_image_part_id,
-                                num_image_each_part, args.part_id))
 
         # ignore image
         if is_ignore[-1].item():
             continue
-
+        if int(correct_all[-1]) == 0:
+            log.info("{}-th image is already incorrect classified, skip".format(batch_index))
+            continue
         # start attack
-        log.info('Attacking {}-th image: image_id: {}, image_type: {}'.format(batch_index, image_id, image_type))
-
-        # find initial point using blended uniform noise
-        # set random seed based on image_id, so we will have the same starting point for different attacking algorithms
-        random.seed(image_id)
-        np.random.seed(image_id)
-        torch.manual_seed(image_id)
-        torch.cuda.manual_seed(image_id)
-        torch.cuda.manual_seed_all(image_id)
-
-        # load init point and init query
-        init_adv_image = init_distance = None
-        init_query_count = 0
-        if len(args.compare_with) > 0:
-            fname = osp.join(args.compare_with, 'results', 'image-id-{}.pkl'.format(image_id))
-            assert osp.exists(fname)
-            with open(fname, 'rb') as f:
-                prev_result = pickle.load(f)
-                init_adv_image = prev_result['init_adv_image']
-                assert init_adv_image.ndimension() == 4
-                assert init_adv_image.shape[0] == 1
-                init_adv_image = init_adv_image.numpy()[0]
-                init_distance = prev_result['init_distance']
-                init_query_count = prev_result['init_query_count']
-            log.info('{}-th image: image_id {}, use initial point from {}, dist: {:.4f}'.format(
-                batch_index, image_id, fname, init_distance))
-        else:
-            log.info('{}-th image: image_id {},'.format(batch_index, image_id) +
-                     ' args.compare_with is not specified, so we will use default foolbox initialization')
-
+        log.info('Begin attacking {}-th image'.format(batch_index))
         # initialize attack object and perform attack
-        if args.attack_type == 'untargeted':
+        if not args.targeted:
             criterion = foolbox.criteria.Misclassification()
         else:
-            criterion = foolbox.criteria.TargetClass((label + 1) % loader.num_class)
-
+            criterion = foolbox.criteria.TargetClass((label + 1) % CLASS_NUM[args.dataset])
         if args.attack_method == 'ba':
-            attack = foolbox.attacks.BoundaryAttack(fmodel, criterion=criterion)
+            attack = BoundaryAttack(fmodel, criterion=criterion)
             with torch.no_grad():
                 result = attack(input_or_adv=image,
                                 label=label,
                                 unpack=False,
                                 iterations=args.ba_iteration,
                                 max_directions=args.ba_max_directions,
+                                max_queries=args.max_queries,
                                 starting_point=init_adv_image,
                                 initialization_attack=None,  # foolbox default
                                 log_every_n_steps=100,
@@ -393,13 +277,9 @@ def main():
             raise NotImplementedError('Unknown attack_method: {}'.format(args.attack_method))
 
         # attack current image done, print summary for current image
-        assert result.distance.value > 0, 'Failed to attack image_id: {}'.format(image_id)
-        log.info('Attack {}-th image done, image_id {}, image_type {}'.format(batch_index, image_id, image_type))
-        log.info('   init query count: {}'.format(init_query_count))
-        if init_distance is not None:
-            log.info('      init distance: {:.4f}'.format(init_distance))
-        else:
-            log.info('      init distance: None')
+        if result.distance.value <= 0:
+            log.info('Failed to attack {}-th image'.format(batch_index))
+        log.info('Attack {}-th image done'.format(batch_index))
         log.info('  final query count: {}'.format(result._total_prediction_calls))
         log.info('     final distance: {:.4g} ({})'.format(result.distance.value, result.distance.name()))
         log.info('     final distance: {:.4f}'.format(np.sqrt(result.distance.value * image.size)))
@@ -408,38 +288,45 @@ def main():
         log.info('          adv label: {}'.format(result.adversarial_class))
 
         # save results
-        log.info('Final result for {}-th image: image_id: {}, query: {:d}, dist: {:.4f}'.format(
-            batch_index, image_id, result._total_prediction_calls, np.sqrt(result.distance.value * image.size)))
-        fname = osp.join(args.exp_dir, 'results', 'image-id-{}.pkl'.format(image_id))
-        os.makedirs(osp.dirname(fname), exist_ok=True)
-        with open(fname, 'wb') as f:
-            result = {'unperturbed': result.unperturbed,
-                      'perturbed': result.perturbed,
-                      'original_class': result.original_class,
-                      'adversarial_class': result.adversarial_class,
-                      'final_distance': np.sqrt(result.distance.value * image.size),
-                      'final_query_count': result._total_prediction_calls,
-                      'image_type': image_type}
-            if args.attack_method in ['ba', 'bapp']:
-                result.update({'distance': np.sqrt(attack.stats_distances * image.size),
-                               'query_count': attack.stats_query_counts + init_query_count,
-                               'init_adv_image': init_adv_image,
-                               'init_distance': init_distance,
-                               'init_query_count': init_query_count})
-            if args.save_all_steps:
-                result.update({'all_steps': attack.stats_all_steps})
-            json.dump(result, f)
-        log.info('Result for current image saved to {}'.format(fname))
-
+        log.info('Final result for {}-th image:  query: {:d}, dist: {:.4f}'.format(
+            batch_index, result._total_prediction_calls, np.sqrt(result.distance.value * image.size)))
+        if not hasattr(attack, "stats_distances"):
+            log.info("Blend random noise failed! skip this {}-th image".format(batch_index))
+            continue
+        with torch.no_grad():
+            adv_images = torch.from_numpy(result.perturbed)
+            if adv_images.dim() == 3:
+                adv_images = adv_images.unsqueeze(0)
+            adv_logit = model(adv_images.cuda())
+            adv_pred = adv_logit.argmax(dim=1)
+            if args.targeted:
+                not_done = 1 - adv_pred.eq(target_label.cuda()).float()
+            else:
+                not_done =  adv_pred.eq(true_label.cuda()).float()
+            success = (1 - not_done.detach().cpu()) * bool(float(np.sqrt(result.distance.value * image.size)) < args.epsilon)
+            success_all.append(int(success[0].item()))
+        result = {
+                  'original_class': int(result.original_class),
+                  'adversarial_class': int(result.adversarial_class),
+                  'final_distance': np.sqrt(result.distance.value * image.size).item(),
+                  'final_query_count': int(result._total_prediction_calls)}
+        stats_distance = np.sqrt(attack.stats_distances * image.size)
+        stats_query_count = attack.stats_query_counts
+        for iteration, query_each_iteration in enumerate(stats_query_count):
+            distortion_all[batch_index][int(query_each_iteration)] = stats_distance[iteration].item()
+        result_json["statistical_details"][batch_index] = result
         # print progress
-        print_progress('Up to now:')
+        # print_progress('Up to now:')
 
-    # finished, create empty file thus others could check whether or not this task is done
-    open(osp.join(args.exp_dir, 'done'), 'a').close()
-
+    result_json["distortion"] = distortion_all
+    result_json["args"] = vars(args)
+    result_json["success_all"] =  success_all,
+    result_json["correct_all"] = correct_all
     # print finish information
     log.info('Attack finished.')
-
+    with open(result_dump_path, "w") as result_file_obj:
+        json.dump(result_json, result_file_obj, sort_keys=True)
+    log.info("done, write stats info to {}".format(result_dump_path))
 
 def set_log_file(fname, file_only=False):
     # set log file
@@ -474,11 +361,13 @@ def print_args():
         log.info('{:s}: {}'.format(prefix, args.__getattribute__(key)))
 
 
-def get_random_dir_name(seed=None):
-    vocab = string.ascii_uppercase + string.ascii_lowercase + string.digits
-    if seed is not None:
-        random.seed(seed)
-    return ''.join(random.choice(vocab) for _ in range(8))
+def get_exp_dir_name(dataset,  norm, targeted, target_type, args):
+    target_str = "untargeted" if not targeted else "targeted_{}".format(target_type)
+    if args.attack_defense:
+        dirname = 'boundary_attack_on_defensive_model-{}-{}-{}'.format(dataset,  norm, target_str)
+    else:
+        dirname = 'boundary_attack-{}-{}-{}'.format(dataset, norm, target_str)
+    return dirname
 
 
 # foolbox库在foolbox.zip里，调用foolbox库的代码在foolbox_attacks.py里
@@ -490,51 +379,58 @@ if __name__ == '__main__':
 
     # 1. setup output directory
     args = parse_args()
-
+    if args.json_config:
+        # If a json file is given, use the JSON file as the base, and then update it with args
+        defaults = json.load(open(args.json_config))[args.dataset][args.norm]
+        arg_vars = vars(args)
+        arg_vars = {k: arg_vars[k] for k in arg_vars if arg_vars[k] is not None}
+        defaults.update(arg_vars)
+        args = SimpleNamespace(**defaults)
     # if args.num_part > 1, then this experiment is just a part and we should use the same token for all parts
     # to guarantee that, we use sha256sum of config in string format to generate unique token
-    assert 0 <= args.part_id < args.num_part <= args.num_image
-    token = copy.deepcopy(vars(args))
-    del token['part_id']
-    del token['exp_dir']
-    token = json.dumps(token, sort_keys=True, indent=4)
-    token = hashlib.sha256(token.encode('utf-8')).digest()  # type(token) == bytes
-    token = get_random_dir_name(seed=token)
-    token = '-'.join([datetime.now().strftime('%Y-%m-%d_%H-%M-%S'),
-                      token,
-                      'part-{}-in-{}'.format(args.part_id, args.num_part)])
-    args.exp_dir = osp.join(args.exp_dir, token)
+    args.exp_dir = osp.join(args.exp_dir, get_exp_dir_name(args.dataset, args.norm, args.targeted, args.target_type, args))  # 随机产生一个目录用于实验
     os.makedirs(args.exp_dir, exist_ok=True)
-
-    # set log file, and import glog after that (since we might change sys.stdout/stderr on set_log_file())
-    set_log_file(osp.join(args.exp_dir, 'run.log'), file_only=args.ssh)
-    import glog as log
+    if args.all_archs:
+        if args.attack_defense:
+            log_file_path = osp.join(args.exp_dir, 'run_defense_{}.log'.format(args.defense_model))
+        else:
+            log_file_path = osp.join(args.exp_dir, 'run.log')
+    elif args.arch is not None:
+        if args.attack_defense:
+            if args.defense_model == "adv_train_on_ImageNet":
+                log_file_path = osp.join(args.exp_dir,
+                                         "run_defense_{}_{}_{}_{}.log".format(args.arch, args.defense_model,
+                                                                              args.defense_norm,
+                                                                              args.defense_eps))
+            else:
+                log_file_path = osp.join(args.exp_dir, 'run_defense_{}_{}.log'.format(args.arch, args.defense_model))
+        else:
+            log_file_path = osp.join(args.exp_dir, 'run_{}.log'.format(args.arch))
+    set_log_file(log_file_path)  # # set log file, and import glog after that (since we might change sys.stdout/stderr on set_log_file())
+    if args.attack_defense:
+        assert args.defense_model is not None
+    if args.targeted:
+        if args.dataset == "ImageNet":
+            args.max_queries = 20000
+    if args.attack_defense and args.defense_model == "adv_train_on_ImageNet":
+        args.max_queries = 20000
     log.info('Foolbox package (version {}) imported from: {}'.format(foolbox.__version__, foolbox.__file__))
     log.info('Host: {}, user: {}, CUDA_VISIBLE_DEVICES: {}, cwd: {}'.format(
         socket.gethostname(), getpass.getuser(), os.environ.get('CUDA_VISIBLE_DEVICES', ''), os.getcwd()))
+
     log.info('Command line is: {}'.format(' '.join(sys.argv)))
+    log.info("Log file is written in {}".format(log_file_path))
     log.info('Called with args:')
     print_args()
 
-    # dump config.json
-    with open(osp.join(args.exp_dir, 'config.json'), 'w') as f:
-        json.dump(vars(args), f, sort_keys=True, indent=4)
-
-    # backup scripts
-    fname = __file__
-    if fname.endswith('pyc'):
-        fname = fname[:-1]
-    os.system('cp {} {}'.format(fname, args.exp_dir))
-    os.system('cp -r *.py models {}'.format(args.exp_dir))
-
     # 2. make global variables
-
     # check device
     device = torch.device('cuda')
-
+    args.device = str(device)
     # set random seed before init model
     os.environ['PYTHONHASHSEED'] = str(args.seed)
-    torch.backends.cudnn.enabled = False
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     random.seed(args.seed)
@@ -542,6 +438,17 @@ if __name__ == '__main__':
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
-
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    if args.attack_defense:
+        if args.defense_model == "adv_train_on_ImageNet":
+            save_result_path = args.exp_dir + "/{}_{}_{}_{}_result.json".format(args.arch, args.defense_model,
+                                                                                args.defense_norm, args.defense_eps)
+        else:
+            save_result_path = args.exp_dir + "/{}_{}_result.json".format(args.arch, args.defense_model)
+    else:
+        save_result_path = args.exp_dir + "/{}_result.json".format(args.arch)
+    log.info("After attack finished, the result json file will be dumped to {}".format(save_result_path))
     # do the business
-    main()
+    main(args, save_result_path)

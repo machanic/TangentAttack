@@ -200,6 +200,7 @@ class TangentAttack(object):
             decisions = self.decision_function(mid_images, true_labels, target_labels)
             num_evals += mid_images.size(0)
             decisions = decisions.int()
+            # 攻击成功时候high用mid，攻击失败的时候low用mid
             lows = torch.where(decisions == 0, mids, lows)  # lows:攻击失败的用mids，攻击成功的用low
             highs = torch.where(decisions == 1, mids, highs)  # highs: 攻击成功的用mids，攻击失败的用high, 不理解的可以去看论文Algorithm 1
             # log.info("decision: {} low: {}, high: {}".format(decisions.detach().cpu().numpy(),lows.detach().cpu().numpy(), highs.detach().cpu().numpy()))
@@ -389,7 +390,7 @@ class TangentAttack(object):
             # search step size.
             if self.stepsize_search == 'geometric_progression':
                 # find step size.
-                perturbed_Tagent, num_evals = self.geometric_progression_for_tangent_point(images, perturbed, gradf,true_labels, target_labels, dist, cur_iter)
+                perturbed_Tagent, num_evals = self.geometric_progression_for_tangent_point(images, perturbed, gradf, true_labels, target_labels, dist, cur_iter)
                 query += num_evals
                 # perturbed_HSJA = self.geometric_progression_for_HSJA(perturbed, true_labels, target_labels, gradf, dist, cur_iter)
                 # dist_tangent = torch.norm((perturbed_Tagent - images).view(batch_size, -1), self.ord, 1).item()
@@ -503,9 +504,9 @@ class TangentAttack(object):
         log.info('Saving results to {}'.format(result_dump_path))
         meta_info_dict = {"avg_correct": self.correct_all.mean().item(),
                           "avg_not_done": self.not_done_all[self.correct_all.bool()].mean().item(),
-                          "mean_query": self.success_query_all[self.success_all.bool()].mean().item(),
-                          "median_query": self.success_query_all[self.success_all.bool()].median().item(),
-                          "max_query": self.success_query_all[self.success_all.bool()].max().item(),
+                          "mean_query": self.success_query_all[self.success_all.bool()].mean().item() if self.success_all.sum().item() > 0 else 0,
+                          "median_query": self.success_query_all[self.success_all.bool()].median().item() if self.success_all.sum().item() > 0 else 0,
+                          "max_query": self.success_query_all[self.success_all.bool()].max().item() if self.success_all.sum().item() > 0 else 0,
                           "correct_all": self.correct_all.detach().cpu().numpy().astype(np.int32).tolist(),
                           "not_done_all": self.not_done_all.detach().cpu().numpy().astype(np.int32).tolist(),
                           "success_all":self.success_all.detach().cpu().numpy().astype(np.int32).tolist(),
@@ -521,10 +522,16 @@ class TangentAttack(object):
 
 def get_exp_dir_name(dataset,  norm, targeted, target_type, args):
     target_str = "untargeted" if not targeted else "targeted_{}".format(target_type)
-    if args.attack_defense:
-        dirname = 'tangent_attack_on_defensive_model-{}-{}-{}'.format(dataset,  norm, target_str)
+    if args.init_num_eval_grad != 100:
+        if args.attack_defense:
+            dirname = 'tangent_attack@{}_on_defensive_model-{}-{}-{}'.format(args.init_num_eval_grad, dataset, norm, target_str)
+        else:
+            dirname = 'tangent_attack@{}-{}-{}-{}'.format(args.init_num_eval_grad, dataset, norm, target_str)
     else:
-        dirname = 'tangent_attack-{}-{}-{}'.format(dataset, norm, target_str)
+        if args.attack_defense:
+            dirname = 'tangent_attack_on_defensive_model-{}-{}-{}'.format(dataset,  norm, target_str)
+        else:
+            dirname = 'tangent_attack-{}-{}-{}'.format(dataset, norm, target_str)
     return dirname
 
 def print_args(args):
@@ -558,12 +565,13 @@ if __name__ == "__main__":
     parser.add_argument('--exp-dir', default='logs', type=str, help='directory to save results and logs')
     parser.add_argument('--seed', default=0, type=int, help='random seed')
     parser.add_argument('--attack_defense',action="store_true")
-    parser.add_argument("--num_iterations",type=int,default=64)
+    parser.add_argument("--num_iterations",type=int,default=10000)
     parser.add_argument('--stepsize_search', type=str, choices=['geometric_progression', 'grid_search'],default='geometric_progression')
     parser.add_argument('--defense_model',type=str, default=None)
     parser.add_argument('--defense_norm', type=str, choices=["l2", "linf"], default='linf')
     parser.add_argument('--defense_eps', type=str,default="")
     parser.add_argument('--max_queries',type=int, default=10000)
+    parser.add_argument('--init_num_eval_grad',type=int,default=100)
     parser.add_argument('--gamma',type=float)
 
     args = parser.parse_args()
@@ -585,7 +593,7 @@ if __name__ == "__main__":
     if args.targeted:
         if args.dataset == "ImageNet":
             args.max_queries = 20000
-    if args.defense_model == "adv_train_on_ImageNet":
+    if args.attack_defense and args.defense_model == "adv_train_on_ImageNet":
         args.max_queries = 20000
     args.exp_dir = osp.join(args.exp_dir,
                             get_exp_dir_name(args.dataset, args.norm, args.targeted, args.target_type, args))  # 随机产生一个目录用于实验
@@ -650,7 +658,8 @@ if __name__ == "__main__":
         model.eval()
         attacker = TangentAttack(model, args.dataset, 0, 1.0, model.input_size[-2], model.input_size[-1], IN_CHANNELS[args.dataset],
                                      args.norm, args.epsilon, args.num_iterations, gamma=args.gamma, stepsize_search = args.stepsize_search,
-                                     max_num_evals=1e4, init_num_evals = 100, maximum_queries=args.max_queries,
+                                     max_num_evals=1e4,
+                                     init_num_evals=args.init_num_eval_grad, maximum_queries=args.max_queries,
                                      verify_tangent_point=args.verify_tangent)
         attacker.attack_all_images(args, arch,  save_result_path)
         model.cpu()

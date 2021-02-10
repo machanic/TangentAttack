@@ -20,8 +20,10 @@ from models.defensive_model import DefensiveModel
 from dataset.target_class_dataset import ImageNetDataset,CIFAR100Dataset,CIFAR10Dataset
 
 class HotSkipJumpAttack(object):
-    def __init__(self, model, dataset,  clip_min, clip_max, height, width, channels, norm, epsilon, iterations=40, gamma=1.0, stepsize_search='geometric_progression',
-                 max_num_evals=1e4, init_num_evals=100, maximum_queries=10000):
+    def __init__(self, model, dataset,  clip_min, clip_max, height, width, channels, norm, epsilon,
+                 iterations=40, gamma=1.0,
+                 stepsize_search='geometric_progression',
+                 max_num_evals=1e4, init_num_evals=100,maximum_queries=10000,random_direction=False):
         """
         :param clip_min: lower bound of the image.
         :param clip_max: upper bound of the image.
@@ -66,6 +68,7 @@ class HotSkipJumpAttack(object):
         self.success_all = torch.zeros_like(self.query_all)
         self.success_query_all = torch.zeros_like(self.query_all)
         self.distortion_with_max_queries_all = torch.zeros_like(self.query_all)
+        self.random_direction = random_direction
 
     def get_image_of_target_class(self,dataset_name, target_labels, target_model):
 
@@ -338,12 +341,19 @@ class HotSkipJumpAttack(object):
             cur_iter += 1
             # Choose delta.
             delta = self.select_delta(cur_iter, dist_post_update)
+
             # Choose number of evaluations.
             num_evals = int(self.init_num_evals * np.sqrt(j+1))
             num_evals = int(min([num_evals, self.max_num_evals]))
-            # approximate gradient
             gradf = self.approximate_gradient(perturbed, true_labels, target_labels, num_evals, delta)
             query += num_evals
+            if self.random_direction:
+                random_direction = torch.randn_like(images)
+                random_direction = random_direction/torch.linalg.norm(random_direction)
+                while torch.vdot(random_direction.view(-1), gradf.view(-1)).item()<0:
+                    random_direction = torch.randn_like(images)
+                    random_direction = random_direction / torch.linalg.norm(random_direction)
+                gradf = random_direction
             if self.norm == "linf":
                 update = torch.sign(gradf)
             else:
@@ -458,9 +468,9 @@ class HotSkipJumpAttack(object):
         log.info('Saving results to {}'.format(result_dump_path))
         meta_info_dict = {"avg_correct": self.correct_all.mean().item(),
                           "avg_not_done": self.not_done_all[self.correct_all.bool()].mean().item(),
-                          "mean_query": self.success_query_all[self.success_all.bool()].mean().item(),
-                          "median_query": self.success_query_all[self.success_all.bool()].median().item(),
-                          "max_query": self.success_query_all[self.success_all.bool()].max().item(),
+                          "mean_query": self.success_query_all[self.success_all.bool()].mean().item() if self.success_all.sum().item() > 0 else 0,
+                          "median_query": self.success_query_all[self.success_all.bool()].median().item() if self.success_all.sum().item() > 0 else 0,
+                          "max_query": self.success_query_all[self.success_all.bool()].max().item() if self.success_all.sum().item() > 0 else 0,
                           "correct_all": self.correct_all.detach().cpu().numpy().astype(np.int32).tolist(),
                           "not_done_all": self.not_done_all.detach().cpu().numpy().astype(np.int32).tolist(),
                           "success_all":self.success_all.detach().cpu().numpy().astype(np.int32).tolist(),
@@ -474,12 +484,24 @@ class HotSkipJumpAttack(object):
         log.info("done, write stats info to {}".format(result_dump_path))
 
 
-def get_exp_dir_name(dataset,  norm, targeted, target_type, args):
+def get_exp_dir_name(dataset,  norm, targeted, target_type, random_direction, args):
     target_str = "untargeted" if not targeted else "targeted_{}".format(target_type)
-    if args.attack_defense:
-        dirname = 'HSJA_on_defensive_model-{}-{}-{}'.format(dataset, norm, target_str)
+    if args.init_num_eval_grad!=100:
+        if args.attack_defense:
+            dirname = 'HSJA@{}_on_defensive_model-{}-{}-{}'.format(args.init_num_eval_grad, dataset, norm, target_str)
+        else:
+            dirname = 'HSJA@{}-{}-{}-{}'.format(args.init_num_eval_grad, dataset, norm, target_str)
     else:
-        dirname = 'HSJA-{}-{}-{}'.format(dataset, norm, target_str)
+        if random_direction:
+            if args.attack_defense:
+                dirname = 'HSJARandom_on_defensive_model-{}-{}-{}'.format(dataset, norm, target_str)
+            else:
+                dirname = 'HSJARandom-{}-{}-{}'.format(dataset, norm, target_str)
+        else:
+            if args.attack_defense:
+                dirname = 'HSJA_on_defensive_model-{}-{}-{}'.format(dataset, norm, target_str)
+            else:
+                dirname = 'HSJA-{}-{}-{}'.format(dataset, norm, target_str)
     return dirname
 
 def print_args(args):
@@ -517,7 +539,9 @@ if __name__ == "__main__":
     parser.add_argument('--defense_model',type=str, default=None)
     parser.add_argument('--defense_norm',type=str,choices=["l2","linf"],default='linf')
     parser.add_argument('--defense_eps',type=str,default="")
+    parser.add_argument('--random_direction',action="store_true")
     parser.add_argument('--max_queries',type=int, default=10000)
+    parser.add_argument('--init_num_eval_grad', type=int, default=100)
     parser.add_argument('--gamma',type=float)
 
     args = parser.parse_args()
@@ -539,15 +563,15 @@ if __name__ == "__main__":
     if args.targeted:
         if args.dataset == "ImageNet":
             args.max_queries = 20000
-    if args.defense_model == "adv_train_on_ImageNet":
+    if args.attack_defense and args.defense_model == "adv_train_on_ImageNet":
         args.max_queries = 20000
     args.exp_dir = osp.join(args.exp_dir,
-                            get_exp_dir_name(args.dataset, args.norm, args.targeted, args.target_type, args))  # 随机产生一个目录用于实验
+                            get_exp_dir_name(args.dataset, args.norm, args.targeted, args.target_type, args.random_direction, args))  # 随机产生一个目录用于实验
     os.makedirs(args.exp_dir, exist_ok=True)
 
     if args.all_archs:
         if args.attack_defense:
-            log_file_path = osp.join(args.exp_dir, 'run_defense_{}_{}.log'.format(args.arch, args.defense_model))
+            log_file_path = osp.join(args.exp_dir, 'run_defense_{}.log'.format(args.defense_model))
         else:
             log_file_path = osp.join(args.exp_dir, 'run.log')
     elif args.arch is not None:
@@ -608,7 +632,7 @@ if __name__ == "__main__":
         if args.attack_defense:
             if args.defense_model == "adv_train_on_ImageNet":
                 save_result_path = args.exp_dir + "/{}_{}_{}_{}_result.json".format(arch, args.defense_model,
-                                                                                    args.defense_norm, args.defense_eps)
+                                                                                    args.defense_norm,args.defense_eps)
             else:
                 save_result_path = args.exp_dir + "/{}_{}_result.json".format(arch, args.defense_model)
         else:
@@ -624,7 +648,8 @@ if __name__ == "__main__":
         model.cuda()
         model.eval()
         attacker = HotSkipJumpAttack(model, args.dataset, 0, 1.0, model.input_size[-2], model.input_size[-1], IN_CHANNELS[args.dataset],
-                                     args.norm, args.epsilon, args.num_iterations, gamma=args.gamma, stepsize_search = args.stepsize_search,
-                                     max_num_evals=1e4, init_num_evals = 100, maximum_queries=args.max_queries)
+                                     args.norm, args.epsilon, args.num_iterations, gamma=args.gamma, stepsize_search=args.stepsize_search,
+                                     max_num_evals=1e4, init_num_evals=args.init_num_eval_grad,
+                                     maximum_queries=args.max_queries, random_direction=args.random_direction)
         attacker.attack_all_images(args, arch, save_result_path)
         model.cpu()

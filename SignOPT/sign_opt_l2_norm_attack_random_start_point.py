@@ -424,6 +424,40 @@ class SignOptL2Norm(object):
         return images + gg * xg, query,success_stop_queries, torch.tensor([gg]).float(), torch.tensor([gg]).float() <= self.epsilon, xg
 
 
+    def get_image_of_target_class(self,dataset_name, target_labels, target_model):
+
+        images = []
+        for label in target_labels:  # length of target_labels is 1
+            if dataset_name == "ImageNet":
+                dataset = ImageNetDataset(IMAGE_DATA_ROOT[dataset_name],label.item(), "validation")
+            elif dataset_name == "CIFAR-10":
+                dataset = CIFAR10Dataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
+            elif dataset_name=="CIFAR-100":
+                dataset = CIFAR100Dataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
+
+            index = np.random.randint(0, len(dataset))
+            image, true_label = dataset[index]
+            image = image.unsqueeze(0)
+            if dataset_name == "ImageNet" and target_model.input_size[-1] != 299:
+                image = F.interpolate(image,
+                                       size=(target_model.input_size[-2], target_model.input_size[-1]), mode='bilinear',
+                                       align_corners=False)
+            with torch.no_grad():
+                logits = target_model(image.cuda())
+            while logits.max(1)[1].item() != label.item():
+                index = np.random.randint(0, len(dataset))
+                image, true_label = dataset[index]
+                image = image.unsqueeze(0)
+                if dataset_name == "ImageNet" and target_model.input_size[-1] != 299:
+                    image = F.interpolate(image,
+                                       size=(target_model.input_size[-2], target_model.input_size[-1]), mode='bilinear',
+                                       align_corners=False)
+                image = image.cuda()
+                with torch.no_grad():
+                    logits = target_model(image)
+            assert true_label == label.item()
+            images.append(torch.squeeze(image))
+        return torch.stack(images).cuda() # B,C,H,W
 
     def targetd_attack(self, image_index, images, target_labels):
         """ Attack the original image and return adversarial example
@@ -446,41 +480,17 @@ class SignOptL2Norm(object):
 
         num_samples = 100
         best_theta, g_theta = None, float('inf')
-        print("Searching for the initial direction on %d samples: " % (num_samples))
-
         # Iterate through training dataset. Find best initial point for gradient descent.
-        if self.dataset == "ImageNet":
-            val_dataset = ImageNetDataset(IMAGE_DATA_ROOT[self.dataset], target_label, "validation")
-        elif self.dataset == "CIFAR-10":
-            val_dataset = CIFAR10Dataset(IMAGE_DATA_ROOT[self.dataset], target_label, "validation")
-        elif self.dataset == "CIFAR-100":
-            val_dataset = CIFAR100Dataset(IMAGE_DATA_ROOT[self.dataset], target_label, "validation")
-        val_dataset_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1, num_workers=0, shuffle=False)
-        for i, (xi, yi) in enumerate(val_dataset_loader):
-            if self.dataset == "ImageNet" and self.model.input_size[-1] != 299:
-                xi = F.interpolate(xi,
-                                       size=(self.model.input_size[-2], self.model.input_size[-1]), mode='bilinear',
-                                       align_corners=False)
-            xi = xi.cuda()
-            yi_pred = self.model(xi).max(1)[1].item()
-            query += 1
-            if yi_pred != target_label:
-                continue
-
-            theta = xi - images
-            initial_lbd = torch.linalg.norm(theta)
-            theta /= initial_lbd
-            lbd, count = self.fine_grained_binary_search_targeted(images, target_label, theta, initial_lbd,
-                                                                  g_theta)
-            query += count
-            if lbd < g_theta:
-                best_theta, g_theta = theta, lbd
-                self.count_stop_query_and_distortion(images, images + best_theta * g_theta, query,
-                                                     success_stop_queries, batch_image_positions)
-                log.info("{}-th image. Found initial target image with the distortion {:.4f}".format(image_index+1, g_theta))
-
-            if i > 100:
-                break
+        xi = self.get_image_of_target_class(self.dataset, target_labels, self.model)
+        theta = xi - images
+        initial_lbd = torch.linalg.norm(theta)
+        theta /= initial_lbd
+        lbd, count = self.fine_grained_binary_search_targeted(images, target_label, theta, initial_lbd,
+                                                              g_theta)
+        query += count
+        best_theta, g_theta = theta, lbd
+        self.count_stop_query_and_distortion(images, images + best_theta * g_theta, query,
+                                             success_stop_queries, batch_image_positions)
 
         if g_theta == np.inf:
             log.info("{}-th image couldn't find valid initial, failed!".format(image_index + 1))
@@ -640,6 +650,27 @@ class SignOptL2Norm(object):
                 value_all = getattr(self, key + "_all")
                 value = eval(key)
                 value_all[selected] = value.detach().float().cpu()
+
+            temp_meta_info_dict = {"process_image": batch_index+1,
+                                "avg_correct": self.correct_all.mean().item(),
+                              "avg_not_done": self.not_done_all[self.correct_all.bool()].mean().item(),
+                              "mean_query": self.success_query_all[
+                                  self.success_all.bool()].mean().item() if self.success_all.sum().item() > 0 else 0,
+                              "median_query": self.success_query_all[
+                                  self.success_all.bool()].median().item() if self.success_all.sum().item() > 0 else 0,
+                              "max_query": self.success_query_all[
+                                  self.success_all.bool()].max().item() if self.success_all.sum().item() > 0 else 0,
+                              "correct_all": self.correct_all.detach().cpu().numpy().astype(np.int32).tolist(),
+                              "not_done_all": self.not_done_all.detach().cpu().numpy().astype(np.int32).tolist(),
+                              "success_all": self.success_all.detach().cpu().numpy().astype(np.int32).tolist(),
+                              "query_all": self.query_all.detach().cpu().numpy().astype(np.int32).tolist(),
+                              "success_query_all": self.success_query_all.detach().cpu().numpy().astype(
+                                  np.int32).tolist(),
+                              "distortion": self.distortion_all,
+                              "avg_distortion_with_max_queries": self.distortion_with_max_queries_all.mean().item(),
+                              "args": vars(args)}
+            with open(result_dump_path, "w") as result_file_obj:
+                json.dump(temp_meta_info_dict, result_file_obj, sort_keys=True)
 
         log.info('{} is attacked finished ({} images)'.format(arch_name, self.total_images))
         log.info('Saving results to {}'.format(result_dump_path))
