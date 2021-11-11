@@ -15,7 +15,7 @@ def load_pgen(dataset, pgen_type, args):
     if dataset == 'ImageNet' or dataset == 'CelebA':
         if pgen_type == 'naive':
             p_gen = None
-        elif pgen_type == 'resize9408':
+        elif pgen_type == 'resize9408' or pgen_type == "resize": # FIXME I add "resize"
             p_gen = ResizeGenerator(factor=4.0)
         elif pgen_type == 'DCT2352':
             p_gen = DCTGenerator(factor=8.0)
@@ -73,7 +73,7 @@ def load_pgen(dataset, pgen_type, args):
     elif dataset.startswith('CIFAR'):
         if pgen_type == 'naive':
             p_gen = None
-        elif pgen_type == 'resize768':
+        elif pgen_type == 'resize768' or pgen_type == "resize": # FIXME I add "resize"
             p_gen = ResizeGenerator(factor=2.0)
         elif pgen_type == 'DCT192':
             p_gen = DCTGenerator(factor=4.0)

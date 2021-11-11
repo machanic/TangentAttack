@@ -17,7 +17,7 @@ from config import IMAGE_DATA_ROOT, CLASS_NUM, MODELS_TEST_STANDARD
 from dataset.dataset_loader_maker import DataLoaderMaker
 import glog as log
 import os.path as osp
-from dataset.target_class_dataset import ImageNetDataset, CIFAR10Dataset, CIFAR100Dataset
+from dataset.target_class_dataset import ImageNetDataset, CIFAR10Dataset, CIFAR100Dataset, TinyImageNetDataset
 
 
 class SignFlipAttack(object):
@@ -51,9 +51,10 @@ class SignFlipAttack(object):
                 dataset = ImageNetDataset(IMAGE_DATA_ROOT[dataset_name],label.item(), "validation")
             elif dataset_name == "CIFAR-10":
                 dataset = CIFAR10Dataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
-            elif dataset_name=="CIFAR-100":
+            elif dataset_name == "CIFAR-100":
                 dataset = CIFAR100Dataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
-
+            elif dataset_name == "TinyImageNet":
+                dataset = TinyImageNetDataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
             index = np.random.randint(0, len(dataset))
             image, true_label = dataset[index]
             image = image.unsqueeze(0)

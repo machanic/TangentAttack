@@ -1,20 +1,20 @@
 import random
 import sys
 import os
+
+
 sys.path.append(os.getcwd())
 import json
 from types import SimpleNamespace
-
 import torch
 import argparse
 import numpy as np
 import os.path as osp
 import glog as log
-
-
 from config import MODELS_TEST_STANDARD, IN_CHANNELS
 from dataset.dataset_loader_maker import DataLoaderMaker
-from SignOPT.sign_opt_l2_norm_attack_random_start_point import SignOptL2Norm  # FIXME 紧急修改成random sampled target class image
+from SignOPT.sign_opt_l2_norm_attack import SignOptL2Norm
+from SignOPT.sign_opt_linf_norm_attack import SignOptLinfNorm
 from models.defensive_model import DefensiveModel
 from models.standard_model import StandardModel
 
@@ -29,18 +29,20 @@ def distance(x_adv, x, norm='l2'):
         return out
 
 def get_exp_dir_name(dataset,  norm, targeted, target_type, args):
+    if target_type == "load_random":
+        target_type = "random"
     target_str = "untargeted" if not targeted else "targeted_{}".format(target_type)
-    if targeted:  # FIXME 临时修改为随机target class image 初始化
+    if args.best_initial_target_sample:
         if args.svm:
             if args.attack_defense:
-                dirname = 'SVMOPT_random_start_point_on_defensive_model-{}-{}-{}'.format(dataset, norm, target_str)
+                dirname = 'SVMOPT_best_start_initial_on_defensive_model-{}-{}-{}'.format(dataset, norm, target_str)
             else:
-                dirname = 'SVMOPT_random_start_point-{}-{}-{}'.format(dataset, norm, target_str)
+                dirname = 'SVMOPT_best_start_initial-{}-{}-{}'.format(dataset, norm, target_str)
         else:
             if args.attack_defense:
-                dirname = 'SignOPT_random_start_point_on_defensive_model-{}-{}-{}'.format(dataset, norm, target_str)
+                dirname = 'SignOPT_best_start_initial_on_defensive_model-{}-{}-{}'.format(dataset, norm, target_str)
             else:
-                dirname = 'SignOPT_random_start_point-{}-{}-{}'.format(dataset, norm, target_str)
+                dirname = 'SignOPT_best_start_initial-{}-{}-{}'.format(dataset, norm, target_str)
         return dirname
     if args.svm:
         if args.attack_defense:
@@ -69,14 +71,12 @@ def set_log_file(fname):
 
 def get_parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, required=True, choices=["CIFAR-10","CIFAR-100","ImageNet"],
-                        help='Dataset to be used, [CIFAR-10, CIFAR-100, ImageNet]')
+    parser.add_argument('--dataset', type=str, required=True, choices=["CIFAR-10","CIFAR-100","ImageNet","TinyImageNet"],
+                        help='Dataset to be used, [CIFAR-10, CIFAR-100, ImageNet, TinyImageNet]')
     parser.add_argument('--json-config', type=str, default='./configures/SignOPT.json',
                         help='a configures file to be passed in instead of arguments')
-    parser.add_argument('--random_start', action='store_true', default=False,
-                        help='PGD attack with random start.')
-    parser.add_argument('--norm', type=str, default="l2", help='Which lp constraint to run bandits [linf|l2]')
-    parser.add_argument('--est_grad_direction_num', type=int,default=200)
+    parser.add_argument('--norm', type=str, required=True, choices=["l2","linf"], help='Which lp constraint to run bandits [linf|l2]')
+    parser.add_argument('--est_grad_direction_num', type=int,default=100)
     parser.add_argument('--epsilon', type=float,
                         help='epsilon of the maximum perturbation in l_p norm attack')
     parser.add_argument('--verbose', action='store_true', default=False,
@@ -86,7 +86,7 @@ def get_parse_args():
     parser.add_argument('--arch', default=None, type=str, help='network architecture')
     parser.add_argument('--all_archs', action="store_true")
     parser.add_argument('--targeted', action="store_true")
-    parser.add_argument('--target_type', type=str, default='increment', choices=['random', 'least_likely', "increment"])
+    parser.add_argument('--target_type', type=str, default='increment', choices=['random','load_random', 'least_likely', "increment"])
     parser.add_argument('--seed', type=int, default=0, help='random seed')
     parser.add_argument('--max_queries', type=int, default=10000)
     parser.add_argument('--gpu', type=int, required=True, help='which GPU ID will be used')
@@ -94,6 +94,10 @@ def get_parse_args():
     parser.add_argument('--defense_model', type=str, default=None)
     parser.add_argument('--defense_norm', type=str, choices=["l2", "linf"], default='linf')
     parser.add_argument('--defense_eps', type=str,default="")
+    parser.add_argument('--best_initial_target_sample', action='store_true',
+                        help='Using a target image with the shortest distortion as the initial images. '
+                             'By default (do not pass --best_initial_target_sample), '
+                             'we use a random selected target image as the initial sample')
     parser.add_argument('--svm',action='store_true',help="using this option is SVM-OPT attack")
     parser.add_argument('--tot',type=float,)
     args = parser.parse_args()
@@ -177,9 +181,16 @@ if __name__ == "__main__":
         tot = None
         if args.tot is not None and args.tot !=0.0:
             tot = args.tot
-        attacker = SignOptL2Norm(model, args.dataset, args.epsilon, args.targeted,
-                                 args.batch_size, args.est_grad_direction_num,
-                                maximum_queries=args.max_queries,svm=args.svm,tot=tot)
-        attacker.attack_all_images(args, arch, save_result_path)
+        if args.norm == "l2":
+            attacker = SignOptL2Norm(model, args.dataset, args.epsilon, args.targeted,
+                                     args.batch_size, args.est_grad_direction_num,
+                                    maximum_queries=args.max_queries,svm=args.svm,tot=tot,
+                                     best_initial_target_sample=args.best_initial_target_sample)
+            attacker.attack_all_images(args, arch, save_result_path)
+        elif args.norm == "linf":
+            attacker = SignOptLinfNorm(model, args.dataset, args.epsilon, args.targeted, args.batch_size,
+                                       args.est_grad_direction_num,maximum_queries=args.max_queries,svm=args.svm,tot=tot,
+                                       best_initial_target_sample=args.best_initial_target_sample)
+            attacker.attack_all_images(args, arch, save_result_path)
         model.cpu()
 

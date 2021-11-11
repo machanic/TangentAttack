@@ -27,13 +27,16 @@ def new_round(_float, _len):
         return (round(_float, _len))
 
 
-method_name_to_paper = {"tangent_attack":"Tangent Attack",  "HSJA":"HopSkipJumpAttack",
-                        "SignOPT":"Sign-OPT", "SVMOPT":"SVM-OPT",
-                        "RayS": "RayS","GeoDA": "GeoDA"}
+method_name_to_paper = {"tangent_attack":"Tangent Attack", "ellipsoid_tangent_attack":"Ellipsoid Tangent Attack", "HSJA":"HopSkipJumpAttack",
+                        "SignOPT":"Sign-OPT", "SVMOPT":"SVM-OPT"}
+                        #"RayS": "RayS","GeoDA": "GeoDA"}
                         #"biased_boundary_attack": "Biased Boundary Attack"}
 
 def from_method_to_dir_path(dataset, method, norm, targeted):
     if method == "tangent_attack":
+        path = "{method}-{dataset}-{norm}-{target_str}".format(method=method, dataset=dataset,
+                                                                norm=norm, target_str="untargeted" if not targeted else "targeted_increment")
+    elif method == "ellipsoid_tangent_attack":
         path = "{method}-{dataset}-{norm}-{target_str}".format(method=method, dataset=dataset,
                                                                 norm=norm, target_str="untargeted" if not targeted else "targeted_increment")
     elif method == "HSJA":
@@ -1427,7 +1430,7 @@ def draw_tables_for_ImageNet_untargeted(archs_result):
     )
 if __name__ == "__main__":
     dataset = "CIFAR-10"
-    norm = "l2"
+    norm = "linf"
     targeted = True
     if "CIFAR" in dataset:
         archs = ['pyramidnet272',"gdas","WRN-28-10-drop", "WRN-40-10-drop"]

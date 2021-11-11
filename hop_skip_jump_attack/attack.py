@@ -17,13 +17,13 @@ from config import CLASS_NUM, MODELS_TEST_STANDARD, IN_CHANNELS, IMAGE_DATA_ROOT
 from dataset.dataset_loader_maker import DataLoaderMaker
 from models.standard_model import StandardModel
 from models.defensive_model import DefensiveModel
-from dataset.target_class_dataset import ImageNetDataset,CIFAR100Dataset,CIFAR10Dataset
+from dataset.target_class_dataset import ImageNetDataset,CIFAR100Dataset,CIFAR10Dataset,TinyImageNetDataset
 
 class HotSkipJumpAttack(object):
     def __init__(self, model, dataset,  clip_min, clip_max, height, width, channels, norm, epsilon,
                  iterations=40, gamma=1.0,
                  stepsize_search='geometric_progression',
-                 max_num_evals=1e4, init_num_evals=100,maximum_queries=10000,random_direction=False):
+                 max_num_evals=1e4, init_num_evals=100,maximum_queries=10000,batch_size=1,random_direction=False):
         """
         :param clip_min: lower bound of the image.
         :param clip_max: upper bound of the image.
@@ -58,8 +58,8 @@ class HotSkipJumpAttack(object):
 
         self.maximum_queries = maximum_queries
         self.dataset_name = dataset
-        self.dataset_loader = DataLoaderMaker.get_test_attacked_data(dataset, args.batch_size)
-        self.batch_size = args.batch_size
+        self.dataset_loader = DataLoaderMaker.get_test_attacked_data(dataset, batch_size)
+        self.batch_size = batch_size
         self.total_images = len(self.dataset_loader.dataset)
         self.query_all = torch.zeros(self.total_images)
         self.distortion_all = defaultdict(OrderedDict)  # key is image index, value is {query: distortion}
@@ -76,6 +76,8 @@ class HotSkipJumpAttack(object):
         for label in target_labels:  # length of target_labels is 1
             if dataset_name == "ImageNet":
                 dataset = ImageNetDataset(IMAGE_DATA_ROOT[dataset_name],label.item(), "validation")
+            elif dataset_name == "TinyImageNet":
+                dataset = TinyImageNetDataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
             elif dataset_name == "CIFAR-10":
                 dataset = CIFAR10Dataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
             elif dataset_name=="CIFAR-100":
@@ -249,16 +251,16 @@ class HotSkipJumpAttack(object):
         rv = (perturbed - sample) / delta
 
         # query the model.
-        if self.dataset_name=="ImageNet" and perturbed.size(0) >= 4:  # FIXME save GPU memory
-            decisions_1 = self.decision_function(perturbed[:perturbed.size(0)//4], true_labels, target_labels)
-            decisions_2 = self.decision_function(perturbed[perturbed.size(0) // 4: perturbed.size(0) * 2 // 4], true_labels, target_labels)
-            decisions_3 = self.decision_function(perturbed[perturbed.size(0)*2 // 4:perturbed.size(0) * 3 // 4],
-                                                 true_labels, target_labels)
-            decisions_4 = self.decision_function(perturbed[perturbed.size(0) * 3 // 4:],
-                                                 true_labels, target_labels)
-            decisions = torch.cat([decisions_1, decisions_2,decisions_3,decisions_4],0)
-        else:
-            decisions = self.decision_function(perturbed, true_labels, target_labels)
+        # if self.dataset_name=="ImageNet" and perturbed.size(0) >= 4:  # FIXME save GPU memory
+        #     decisions_1 = self.decision_function(perturbed[:perturbed.size(0)//4], true_labels, target_labels)
+        #     decisions_2 = self.decision_function(perturbed[perturbed.size(0) // 4: perturbed.size(0) * 2 // 4], true_labels, target_labels)
+        #     decisions_3 = self.decision_function(perturbed[perturbed.size(0)*2 // 4:perturbed.size(0) * 3 // 4],
+        #                                          true_labels, target_labels)
+        #     decisions_4 = self.decision_function(perturbed[perturbed.size(0) * 3 // 4:],
+        #                                          true_labels, target_labels)
+        #     decisions = torch.cat([decisions_1, decisions_2,decisions_3,decisions_4],0)
+        # else:
+        decisions = self.decision_function(perturbed, true_labels, target_labels)
         decision_shape = [decisions.size(0)] + [1] * len(self.shape)
         fval = 2 * decisions.float().view(decision_shape) - 1.0
 
@@ -408,7 +410,9 @@ class HotSkipJumpAttack(object):
         return perturbed, query, success_stop_queries, dist, (dist <= self.epsilon)
 
     def attack_all_images(self, args, arch_name, result_dump_path):
-
+        if args.targeted and args.target_type == "load_random":
+            loaded_target_labels = np.load("./target_class_labels/{}/label.npy".format(args.dataset))
+            loaded_target_labels = torch.from_numpy(loaded_target_labels).long()
         for batch_index, (images, true_labels) in enumerate(self.dataset_loader):
             if args.dataset == "ImageNet" and self.model.input_size[-1] != 299:
                 images = F.interpolate(images,
@@ -431,6 +435,10 @@ class HotSkipJumpAttack(object):
                         target_labels[invalid_target_index] = torch.randint(low=0, high=logit.shape[1],
                                                                             size=target_labels[invalid_target_index].shape).long()
                         invalid_target_index = target_labels.eq(true_labels)
+                elif args.target_type == "load_random":
+                    target_labels = loaded_target_labels[selected]
+                    assert target_labels[0].item()!=true_labels[0].item()
+                    # log.info("load random label as {}".format(target_labels))
                 elif args.target_type == 'least_likely':
                     target_labels = logit.argmin(dim=1).detach().cpu()
                 elif args.target_type == "increment":
@@ -485,6 +493,8 @@ class HotSkipJumpAttack(object):
 
 
 def get_exp_dir_name(dataset,  norm, targeted, target_type, random_direction, args):
+    if target_type == "load_random":
+        target_type = "random"
     target_str = "untargeted" if not targeted else "targeted_{}".format(target_type)
     if args.init_num_eval_grad!=100:
         if args.attack_defense:
@@ -530,7 +540,7 @@ if __name__ == "__main__":
     parser.add_argument('--arch', default=None, type=str, help='network architecture')
     parser.add_argument('--all_archs', action="store_true")
     parser.add_argument('--targeted', action="store_true")
-    parser.add_argument('--target_type',type=str, default='increment', choices=['random', 'least_likely',"increment"])
+    parser.add_argument('--target_type',type=str, default='increment', choices=['random', "load_random", 'least_likely',"increment"])
     parser.add_argument('--exp-dir', default='logs', type=str, help='directory to save results and logs')
     parser.add_argument('--seed', default=0, type=int, help='random seed')
     parser.add_argument('--attack_defense',action="store_true")

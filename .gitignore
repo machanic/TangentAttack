@@ -39,7 +39,7 @@ data
 *.sql
 *.sqlite
 *.bak
-
+.idea
 # OS generated files #
 ######################
 .DS_Store

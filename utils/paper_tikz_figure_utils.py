@@ -30,6 +30,11 @@ def compute_line_plane_intersect_point(x1, x2, plane_point, plane_normal_vector)
     t = (np.dot(plane_normal_vector, plane_point) - np.dot(plane_normal_vector, x1))/ np.dot(plane_normal_vector, x2-x1)
     return t * (x2-x1) + x1
 
+
+def compute_line_y3(x1,y1,x2,y2,x3):
+    y3 = (x3-x1)/(x2-x1) * (y2-y1) + y1
+    return y3
+
 if __name__ == "__main__":
     r=2.0
     Ox = 1.5 * r

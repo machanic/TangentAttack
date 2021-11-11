@@ -50,14 +50,15 @@ class Adversarial(object):
 
     """
 
-    def __init__(self, model, criterion, unperturbed, original_class, distance=MSE, threshold=None, verbose=False):
+    def __init__(self, model, criterion, unperturbed, original_class, distance=MSE, threshold=None, verbose=False,
+                 targeted_attack=False):
         # unperturbed, original_class和实际上传入的是 tgt_image, tgt_label
 
         self.__model = model
         self.__criterion = criterion  # 放入true label的 TargetClass(true_labels[0].item())
-        self.__unperturbed = unperturbed # 实际上传入的是 tgt_image,
+        self.__unperturbed = unperturbed
         self.__unperturbed_for_distance = unperturbed
-        self.__original_class = original_class  # 实际上传入的是 tgt_label
+        self.__original_class = original_class
         self.__distance = distance
 
         if threshold is not None and not isinstance(threshold, Distance):
@@ -75,9 +76,22 @@ class Adversarial(object):
 
         self._best_prediction_calls = 0
         self._best_gradient_calls = 0
+        self.targeted_attack = targeted_attack
 
         # check if the original input is already adversarial
         self._check_unperturbed()
+        self.torch_to_numpy_dtype_dict = {
+            torch.bool: np.bool,
+            torch.uint8: np.uint8,
+            torch.int8: np.int8,
+            torch.int16: np.int16,
+            torch.int32: np.int32,
+            torch.int64: np.int64,
+            torch.float16: np.float16,
+            torch.float32: np.float32,
+            torch.float64: np.float64,
+            torch.complex64: np.complex64,
+        }
 
     def _check_unperturbed(self):
         try:
@@ -152,7 +166,8 @@ class Adversarial(object):
         return self.__distance
 
     def set_distance_dtype(self, dtype):
-        assert dtype >= self.__unperturbed.dtype
+        assert self.torch_to_numpy_dtype_dict[dtype] >= self.__unperturbed.cpu().numpy().dtype
+        # assert dtype >= self.__unperturbed.dtype
         self.__unperturbed_for_distance = self.__unperturbed.type(dtype)
 
     def reset_distance_dtype(self):
@@ -217,8 +232,12 @@ class Adversarial(object):
             The label of the unperturbed reference input.
 
         """
-        is_adversarial = self.__criterion.is_adversarial(
-            predictions, self.__original_class)  # __original_class 传入了但是没鸟用，这个is_adversarial的返回：与true label一致，返回True，否则False
+        if not self.targeted_attack:
+            is_adversarial = self.__criterion.is_adversarial(
+                predictions, self.__original_class)  # __original_class 传入了但是没鸟用，这个is_adversarial的返回：与true label一致，返回True，否则False
+        else:
+            is_adversarial = self.__criterion.is_adversarial(
+                predictions)
         assert isinstance(is_adversarial, bool) or \
             isinstance(is_adversarial, np.bool_)
         if is_adversarial:  # 与true label 一致时
@@ -280,7 +299,7 @@ class Adversarial(object):
         assert not strict or in_bounds
 
         self._total_prediction_calls += 1
-        predictions = self.__model.forward(x)
+        predictions = self.__model.forward(x.cuda()).squeeze(0)
         is_adversarial, is_best, distance = self.__is_adversarial(
             x, predictions, in_bounds)
 
@@ -306,9 +325,9 @@ class Adversarial(object):
         if strict:
             in_bounds = self.in_bounds(inputs)
             assert in_bounds
-
+        assert inputs.dim() == 4
         self._total_prediction_calls += len(inputs)
-        predictions = self.__model.forward(inputs)
+        predictions = self.__model.forward(inputs.cuda())
 
         assert predictions.dim() == 2
         assert predictions.shape[0] == inputs.shape[0]

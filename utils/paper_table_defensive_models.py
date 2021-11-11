@@ -516,14 +516,92 @@ def draw_wide_table_CIFAR(untargeted_result, targeted_result):
         targeted_Tangent_com_defend_10000=targeted_result["com_defend"]["Tangent Attack"][10000],
     )
     )
+def draw_table_for_defensive_models_linf_attacks(result):
+    print("""
+                Defense | Method  | @300 | @1K | @2K | @5K | @8K | @10K |
+                :- | :-| :- | :- |:- |:- |:- | :- |
+                AT | HSJA | {HSJA_AT_300} | {HSJA_AT_1000} | {HSJA_AT_2000} | {HSJA_AT_5000} | {HSJA_AT_8000} |{HSJA_AT_10000} |
+                AT | Ours(hemishpere) | {TangentAttackHemisphere_AT_300} | {TangentAttackHemisphere_AT_1000} | {TangentAttackHemisphere_AT_2000} | {TangentAttackHemisphere_AT_5000} | {TangentAttackHemisphere_AT_8000} |{TangentAttackHemisphere_AT_10000} |
+                AT | Ours(ellipsoid) | {TangentAttackSemiellipsoid_AT_300} | {TangentAttackSemiellipsoid_AT_1000} | {TangentAttackSemiellipsoid_AT_2000} | {TangentAttackSemiellipsoid_AT_5000} | {TangentAttackSemiellipsoid_AT_8000} |{TangentAttackSemiellipsoid_AT_10000} |
+                TRADES| HSJA | {HSJA_TRADES_300} | {HSJA_TRADES_1000} | {HSJA_TRADES_2000} | {HSJA_TRADES_5000} | {HSJA_TRADES_8000} |{HSJA_TRADES_10000} |
+                TRADES| Ours(hemishpere) | {TangentAttackHemisphere_TRADES_300} | {TangentAttackHemisphere_TRADES_1000} | {TangentAttackHemisphere_TRADES_2000} | {TangentAttackHemisphere_TRADES_5000} | {TangentAttackHemisphere_TRADES_8000} |{TangentAttackHemisphere_TRADES_10000} |
+                TRADES| Ours(ellipsoid) | {TangentAttackSemiellipsoid_TRADES_300} | {TangentAttackSemiellipsoid_TRADES_1000} | {TangentAttackSemiellipsoid_TRADES_2000} | {TangentAttackSemiellipsoid_TRADES_5000} | {TangentAttackSemiellipsoid_TRADES_8000} |{TangentAttackSemiellipsoid_TRADES_10000} |
+                Feature Scatter| HSJA | {HSJA_FeatureScatter_300} | {HSJA_FeatureScatter_1000} | {HSJA_FeatureScatter_2000} | {HSJA_FeatureScatter_5000} | {HSJA_FeatureScatter_8000} |{HSJA_FeatureScatter_10000} |
+                Feature Scatter| Ours(hemishpere) | {TangentAttackHemisphere_FeatureScatter_300} | {TangentAttackHemisphere_FeatureScatter_1000} | {TangentAttackHemisphere_FeatureScatter_2000} | {TangentAttackHemisphere_FeatureScatter_5000} | {TangentAttackHemisphere_FeatureScatter_8000} |{TangentAttackHemisphere_FeatureScatter_10000} |
+                Feature Scatter| Ours(ellipsoid) | {TangentAttackSemiellipsoid_FeatureScatter_300} | {TangentAttackSemiellipsoid_FeatureScatter_1000} | {TangentAttackSemiellipsoid_FeatureScatter_2000} | {TangentAttackSemiellipsoid_FeatureScatter_5000} | {TangentAttackSemiellipsoid_FeatureScatter_8000} |{TangentAttackSemiellipsoid_FeatureScatter_10000} |
+                                """.format(
+        HSJA_AT_300=result["adv_train"]["HSJA"][300],
+        HSJA_AT_1000=result["adv_train"]["HSJA"][1000],
+        HSJA_AT_2000=result["adv_train"]["HSJA"][2000],
+        HSJA_AT_5000=result["adv_train"]["HSJA"][5000],
+        HSJA_AT_8000=result["adv_train"]["HSJA"][8000],
+        HSJA_AT_10000=result["adv_train"]["HSJA"][10000],
 
+        TangentAttackHemisphere_AT_300=result["adv_train"]["Tangent Attack(hemisphere)"][300],
+        TangentAttackHemisphere_AT_1000=result["adv_train"]["Tangent Attack(hemisphere)"][1000],
+        TangentAttackHemisphere_AT_2000=result["adv_train"]["Tangent Attack(hemisphere)"][2000],
+        TangentAttackHemisphere_AT_5000=result["adv_train"]["Tangent Attack(hemisphere)"][5000],
+        TangentAttackHemisphere_AT_8000=result["adv_train"]["Tangent Attack(hemisphere)"][8000],
+        TangentAttackHemisphere_AT_10000=result["adv_train"]["Tangent Attack(hemisphere)"][10000],
+
+        TangentAttackSemiellipsoid_AT_300=result["adv_train"]["Tangent Attack(semiellipsoid)"][300],
+        TangentAttackSemiellipsoid_AT_1000=result["adv_train"]["Tangent Attack(semiellipsoid)"][1000],
+        TangentAttackSemiellipsoid_AT_2000=result["adv_train"]["Tangent Attack(semiellipsoid)"][2000],
+        TangentAttackSemiellipsoid_AT_5000=result["adv_train"]["Tangent Attack(semiellipsoid)"][5000],
+        TangentAttackSemiellipsoid_AT_8000=result["adv_train"]["Tangent Attack(semiellipsoid)"][8000],
+        TangentAttackSemiellipsoid_AT_10000=result["adv_train"]["Tangent Attack(semiellipsoid)"][10000],
+
+        HSJA_TRADES_300=result["TRADES"]["HSJA"][300],
+        HSJA_TRADES_1000=result["TRADES"]["HSJA"][1000],
+        HSJA_TRADES_2000=result["TRADES"]["HSJA"][2000],
+        HSJA_TRADES_5000=result["TRADES"]["HSJA"][5000],
+        HSJA_TRADES_8000=result["TRADES"]["HSJA"][8000],
+        HSJA_TRADES_10000=result["TRADES"]["HSJA"][10000],
+
+        TangentAttackHemisphere_TRADES_300=result["TRADES"]["Tangent Attack(hemisphere)"][300],
+        TangentAttackHemisphere_TRADES_1000=result["TRADES"]["Tangent Attack(hemisphere)"][1000],
+        TangentAttackHemisphere_TRADES_2000=result["TRADES"]["Tangent Attack(hemisphere)"][2000],
+        TangentAttackHemisphere_TRADES_5000=result["TRADES"]["Tangent Attack(hemisphere)"][5000],
+        TangentAttackHemisphere_TRADES_8000=result["TRADES"]["Tangent Attack(hemisphere)"][8000],
+        TangentAttackHemisphere_TRADES_10000=result["TRADES"]["Tangent Attack(hemisphere)"][10000],
+
+        TangentAttackSemiellipsoid_TRADES_300=result["TRADES"]["Tangent Attack(semiellipsoid)"][300],
+        TangentAttackSemiellipsoid_TRADES_1000=result["TRADES"]["Tangent Attack(semiellipsoid)"][1000],
+        TangentAttackSemiellipsoid_TRADES_2000=result["TRADES"]["Tangent Attack(semiellipsoid)"][2000],
+        TangentAttackSemiellipsoid_TRADES_5000=result["TRADES"]["Tangent Attack(semiellipsoid)"][5000],
+        TangentAttackSemiellipsoid_TRADES_8000=result["TRADES"]["Tangent Attack(semiellipsoid)"][8000],
+        TangentAttackSemiellipsoid_TRADES_10000=result["TRADES"]["Tangent Attack(semiellipsoid)"][10000],
+
+        HSJA_FeatureScatter_300=result["feature_scatter"]["HSJA"][300],
+        HSJA_FeatureScatter_1000=result["feature_scatter"]["HSJA"][1000],
+        HSJA_FeatureScatter_2000=result["feature_scatter"]["HSJA"][2000],
+        HSJA_FeatureScatter_5000=result["feature_scatter"]["HSJA"][5000],
+        HSJA_FeatureScatter_8000=result["feature_scatter"]["HSJA"][8000],
+        HSJA_FeatureScatter_10000=result["feature_scatter"]["HSJA"][10000],
+
+        TangentAttackHemisphere_FeatureScatter_300=result["feature_scatter"]["Tangent Attack(hemisphere)"][300],
+        TangentAttackHemisphere_FeatureScatter_1000=result["feature_scatter"]["Tangent Attack(hemisphere)"][1000],
+        TangentAttackHemisphere_FeatureScatter_2000=result["feature_scatter"]["Tangent Attack(hemisphere)"][2000],
+        TangentAttackHemisphere_FeatureScatter_5000=result["feature_scatter"]["Tangent Attack(hemisphere)"][5000],
+        TangentAttackHemisphere_FeatureScatter_8000=result["feature_scatter"]["Tangent Attack(hemisphere)"][8000],
+        TangentAttackHemisphere_FeatureScatter_10000=result["feature_scatter"]["Tangent Attack(hemisphere)"][10000],
+
+        TangentAttackSemiellipsoid_FeatureScatter_300=result["feature_scatter"]["Tangent Attack(semiellipsoid)"][300],
+        TangentAttackSemiellipsoid_FeatureScatter_1000=result["feature_scatter"]["Tangent Attack(semiellipsoid)"][1000],
+        TangentAttackSemiellipsoid_FeatureScatter_2000=result["feature_scatter"]["Tangent Attack(semiellipsoid)"][2000],
+        TangentAttackSemiellipsoid_FeatureScatter_5000=result["feature_scatter"]["Tangent Attack(semiellipsoid)"][5000],
+        TangentAttackSemiellipsoid_FeatureScatter_8000=result["feature_scatter"]["Tangent Attack(semiellipsoid)"][8000],
+        TangentAttackSemiellipsoid_FeatureScatter_10000=result["feature_scatter"]["Tangent Attack(semiellipsoid)"][
+            10000],
+    )
+    )
 
 if __name__ == "__main__":
     dataset = "CIFAR-10"
-    norm = "l2"
-    targeted = True
+    norm = "linf"
+    targeted = False
     if "CIFAR" in dataset:
-        archs = ['com_defend',"feature_distillation","feature_scatter", "jpeg", "TRADES"]
+        archs = ['adv_train',"feature_distillation","feature_scatter", "jpeg", "TRADES"]
     else:
         archs = ["resnext101_64x4d","inceptionv4","senet154","resnet101","inceptionv3"]
     query_budgets = [1000,2000,5000,8000,10000]
@@ -531,12 +609,12 @@ if __name__ == "__main__":
     #     query_budgets.extend([12000,15000,18000,20000])
     if "CIFAR" in dataset:
         targeted_result = {}
-        for arch in archs:
-            result = fetch_all_json_content_given_contraint(dataset, norm, True, arch, query_budgets, "mean_distortion")
-            targeted_result[arch] = result
+        # for arch in archs:
+        #     result = fetch_all_json_content_given_contraint(dataset, norm, True, arch, query_budgets, "mean_distortion")
+        #     targeted_result[arch] = result
         untargeted_result = {}
         for arch in archs:
             result = fetch_all_json_content_given_contraint(dataset, norm, False, arch, query_budgets, "mean_distortion")
             untargeted_result[arch] = result
 
-        draw_wide_table_CIFAR(untargeted_result, targeted_result)
+        draw_table_for_defensive_models_linf_attacks(untargeted_result)

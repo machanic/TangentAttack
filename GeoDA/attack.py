@@ -576,10 +576,9 @@ if __name__ == "__main__":
         arg_vars = {k: arg_vars[k] for k in arg_vars if arg_vars[k] is not None}
         defaults.update(arg_vars)
         args = SimpleNamespace(**defaults)
-    if args.targeted:
-        if args.dataset == "ImageNet":
+    if args.targeted and args.dataset == "ImageNet":
             args.max_queries = 20000
-    if args.defense_model == "adv_train_on_ImageNet":
+    if args.attack_defense and args.defense_model == "adv_train_on_ImageNet":
         args.max_queries = 20000
     args.exp_dir = osp.join(args.exp_dir,
                             get_exp_dir_name(args.dataset, args.norm, args.targeted, args.target_type, args))  # 随机产生一个目录用于实验

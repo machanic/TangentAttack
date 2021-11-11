@@ -1,11 +1,12 @@
-IMAGE_SIZE = {"CIFAR-10":(32,32), "CIFAR-100":(32,32), "ImageNet":(224,224), "MNIST":(28, 28), "FashionMNIST":(28,28), "SVHN":(32,32),
+import os
+IMAGE_SIZE = {"CIFAR-10":(32,32), "CIFAR-100":(32,32), "ImageNet":(299,299), "MNIST":(28, 28), "FashionMNIST":(28,28), "SVHN":(32,32),
               "TinyImageNet": (64,64)}
 IN_CHANNELS = {"MNIST":1, "FashionMNIST":1, "CIFAR-10":3, "ImageNet":3, "CIFAR-100":3, "SVHN":3, "TinyImageNet":3}
 CLASS_NUM = {"MNIST":10,"FashionMNIST":10, "CIFAR-10":10, "CIFAR-100":100, "ImageNet":1000, "SVHN":10, "TinyImageNet":200}
 
-HOME_ROOT = "/home/machen"
+PROJECT_PATH = os.path.dirname(os.path.abspath(__file__))
+HOME_ROOT = os.path.dirname(PROJECT_PATH)
 
-PY_ROOT = "{}/hard_label_attacks".format(HOME_ROOT)
 
 IMAGE_DATA_ROOT = {"CIFAR-10":"{}/dataset/CIFAR-10".format(HOME_ROOT), "CIFAR-100":"{}/dataset/CIFAR-100".format(HOME_ROOT),
                    'cifar10':"{}/dataset/CIFAR-10".format(HOME_ROOT),

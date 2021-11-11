@@ -13,6 +13,32 @@ from matplotlib.ticker import StrMethodFormatter
 
 from config import MODELS_TEST_STANDARD
 
+from matplotlib import rcParams, rc
+rcParams['xtick.direction'] = 'out'
+rcParams['ytick.direction'] = 'out'
+rcParams['pdf.fonttype'] = 42
+rcParams['ps.fonttype'] = 42
+rc('pdf', fonttype=42)
+from collections import OrderedDict
+
+linestyle_dict = OrderedDict(
+    [('solid',               (0, ())),
+     ('loosely dotted',      (0, (1, 10))),
+     ('dotted',              (0, (1, 5))),
+     ('densely dotted',      (0, (1, 1))),
+
+     ('loosely dashed',      (0, (5, 10))),
+     ('dashed',              (0, (5, 5))),
+     ('densely dashed',      (0, (5, 1))),
+
+     ('loosely dashdotted',  (0, (3, 10, 1, 10))),
+     ("dashdot","dashdot"),
+     ('dashdotted',          (0, (3, 5, 1, 5))),
+     ('densely dashdotted',  (0, (3, 1, 1, 1))),
+
+     ('loosely dashdotdotted', (0, (3, 10, 1, 10, 1, 10))),
+     ('dashdotdotted',         (0, (3, 5, 1, 5, 1, 5))),
+     ('densely dashdotdotted', (0, (3, 1, 1, 1, 1, 1)))])
 
 def read_json_data(json_path):
     # data_key can be query_success_rate_dict, query_threshold_success_rate_dict, success_rate_to_avg_query
@@ -70,15 +96,16 @@ def read_all_data(dataset_path_dict, arch, query_budgets, stats="mean_distortion
 
 
 
-method_name_to_paper = {"tangent_attack":"Tangent Attack",  "HSJA":"HopSkipJumpAttack",
-                        "boundary_attack":"Boundary Attack",  "SVMOPT":"SVM-OPT","SignOPT":"Sign-OPT"
+method_name_to_paper = {"ellipsoid_tangent_attack": "G-TA",
+                        "tangent_attack":"TA",  "HSJA":"HSJA",
+                        "boundary_attack":"BA",  "SVMOPT":"SVM-OPT","SignOPT":"Sign-OPT"
                         }
                        # , "SVMOPT":"SVM-OPT"}
                         #"boundary_attack":"Boundary Attack", "RayS": "RayS","GeoDA": "GeoDA"}
                         #"biased_boundary_attack": "Biased Boundary Attack"}
 
 def from_method_to_dir_path(dataset, method, norm, targeted):
-    if method == "tangent_attack":
+    if method == "tangent_attack" or method == "ellipsoid_tangent_attack":
         path = "{method}_on_defensive_model-{dataset}-{norm}-{target_str}".format(method=method, dataset=dataset,
                                                                 norm=norm, target_str="untargeted" if not targeted else "targeted_increment")
     elif method == "HSJA":
@@ -101,13 +128,13 @@ def from_method_to_dir_path(dataset, method, norm, targeted):
         path = "{method}_on_defensive_model-{dataset}-{norm}-{target_str}".format(method=method,dataset=dataset,norm=norm, target_str="untargeted" if not targeted else "targeted_increment")
     elif method == "SignOPT":
         if targeted:
-            path = "{method}_random_start_point_on_defensive_model-{dataset}-{norm}-{target_str}".format(method=method, dataset=dataset, norm=norm,
+            path = "{method}_on_defensive_model-{dataset}-{norm}-{target_str}".format(method=method, dataset=dataset, norm=norm,
                                                                    target_str="untargeted" if not targeted else "targeted_increment")
         else:
             path = "{method}_on_defensive_model-{dataset}-{norm}-{target_str}".format(method=method,dataset=dataset,norm=norm, target_str="untargeted" if not targeted else "targeted_increment")
     elif method == "SVMOPT":
         if targeted:
-            path = "{method}_random_start_point_on_defensive_model-{dataset}-{norm}-{target_str}".format(method=method, dataset=dataset, norm=norm,
+            path = "{method}_on_defensive_model-{dataset}-{norm}-{target_str}".format(method=method, dataset=dataset, norm=norm,
                                                                    target_str="untargeted" if not targeted else "targeted_increment")
         else:
             path = "{method}_on_defensive_model-{dataset}-{norm}-{target_str}".format(method=method,dataset=dataset,norm=norm, target_str="untargeted" if not targeted else "targeted_increment")
@@ -141,30 +168,41 @@ def draw_query_distortion_figure(dataset, norm, targeted, arch, fig_type, dump_f
     # query_budgets = np.insert(query_budgets,0, [200,300,400])
     data_info = read_all_data(dataset_path_dict, arch, query_budgets, fig_type)  # fig_type can be mean_distortion or median_distortion
     plt.style.use('seaborn-whitegrid')
-    plt.figure(figsize=(10, 8))
-    colors = ['b', 'g',  'c', 'm', 'y', 'k', 'orange', "pink","brown","slategrey","cornflowerblue","greenyellow"]
+    from matplotlib import rcParams, rc
+    rcParams['xtick.direction'] = 'out'
+    rcParams['ytick.direction'] = 'out'
+    rcParams['pdf.fonttype'] = 42
+    rcParams['ps.fonttype'] = 42
+    rc('pdf', fonttype=42)
+
+    plt.figure(figsize=(15, 15))
+    colors = ['g', 'b',  'c',  'y', 'k', 'peru', "gold"]
+    markers = ['o','>','*','s',"X","h"]
+    linestyles = ["solid", "dashed", "densely dotted", "dashdotdotted","densely dashed","densely dashdotdotted"]
     # markers = [".",",","o","^","s","p","x"]
     # max_x = 0
     # min_x = 0
-    our_method = 'Tangent Attack'
+    our_method1 = 'TA'
+    our_method2 = 'G-TA'
 
-    xtick = np.array([500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000])
+    xtick = np.array([ 500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000])
     if max_query == 20000:
-        xtick = np.array([500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000,11000,12000,13000,14000,15000,16000,17000,18000,19000,20000])
+        xtick = np.array([ 500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000,11000,12000,13000,14000,15000,16000,17000,18000,19000,20000])
     max_y = 0
     min_y= 999
     for idx, ((dataset, norm, targeted, method), (x,y)) in enumerate(data_info.items()):
-        color = colors[idx%len(colors)]
-        if method == our_method:
+        color = colors[idx]
+        if method == our_method2:
             color = "r"
-
+        # elif method == our_method1:
+        #     color = 'slateblue'
         x = np.asarray(x)
         y = np.asarray(y)
         if np.max(y) > max_y:
             max_y = np.max(y)
         if np.min(y) < min_y:
             min_y = np.min(y)
-        line, = plt.plot(x, y, label=method, color=color, linestyle="-", linewidth=1.0)  # FIXME
+        line, = plt.plot(x, y, label=method, color=color, linestyle=linestyle_dict[linestyles[idx]], marker=markers[idx], markersize=20, linewidth=3.0)
         #line, = plt.plot(x, y, label=method, color=color, linestyle="-")
         xtick_copy = xtick.copy()
         y_points = np.interp(xtick_copy, x, y)
@@ -172,7 +210,7 @@ def draw_query_distortion_figure(dataset, norm, targeted, arch, fig_type, dump_f
             mask = xtick_copy>=1000
             xtick_copy = xtick_copy[mask]
             y_points = y_points[mask]
-        plt.scatter(xtick_copy, y_points,color=color,marker='.',s=20)
+        #plt.scatter(xtick_copy[1:], y_points[1:],color=color,marker=markers[idx],s=20)
         # plt.scatter(xtick, y_points, color=color, marker='.')
     if dataset!="ImageNet":
         plt.gca().yaxis.set_major_formatter(StrMethodFormatter('{x:,.0f}'))
@@ -189,27 +227,35 @@ def draw_query_distortion_figure(dataset, norm, targeted, arch, fig_type, dump_f
     print("max y is {}".format(max_y))
     # xtick = [0, 5000, 10000]
     if dataset == "ImageNet" and targeted:
-        x_ticks = xtick[1::2]
+        x_ticks = xtick[::2]
         x_ticks = x_ticks.tolist()
-        x_ticks.append(21000)
         x_ticks_label = ["{}K".format(x_tick // 1000) for x_tick in x_ticks]
-        plt.xticks(x_ticks, x_ticks_label, fontsize=18)  # remove 500
+        xtick[0] = 0
+        x_ticks_label[0] = "0"
+        plt.xticks(x_ticks, x_ticks_label, fontsize=38)  # remove 500
     else:
-        x_ticks_label = ["{}K".format(x_tick // 1000) for x_tick in xtick[1:]]
-        plt.xticks(xtick[1:], x_ticks_label, fontsize=18) # remove 500
+        x_ticks_label = ["{}K".format(x_tick // 1000) for x_tick in xtick]
+        xtick[0] = 0
+        x_ticks_label[0] = "0"
+        plt.xticks(xtick, x_ticks_label, fontsize=38) # remove 500
     if dataset=="ImageNet":
         yticks = np.arange(0, max_y+1, 5)
     else:
         yticks = np.arange(0, max_y+1)
-    plt.yticks(yticks, fontsize=18)
-    plt.xlabel(xlabel, fontsize=20)
-    plt.ylabel(ylabel, fontsize=20)
-    plt.legend(loc='lower right', prop={'size': 20})
+    plt.yticks(yticks, fontsize=38)
+    plt.xlabel(xlabel, fontsize=55)
+    plt.ylabel(ylabel, fontsize=55)
+
+    if "jpeg" in dump_file_path or "ImageNet" == dataset:
+        plt.legend(loc='lower right', prop={'size': 45},labelcolor='linecolor',
+                   fancybox=True, framealpha=0.5,frameon=True)
+    elif ("com_defend" in dump_file_path or "feature_distillation" in dump_file_path) and "CIFAR-10" == dataset and targeted:
+        plt.legend(loc='lower right', prop={'size': 45},labelcolor='linecolor',fancybox=True, framealpha=0.5,frameon=True)
+    else:
+        plt.legend(loc='upper right', prop={'size': 45},labelcolor='linecolor',fancybox=True, framealpha=0.5,frameon=True)
     plt.savefig(dump_file_path, dpi=200)
     plt.close()
     print("save to {}".format(dump_file_path))
-
-
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Drawing Figures of Attacking Normal Models')
@@ -227,24 +273,29 @@ if __name__ == "__main__":
     dump_folder = "/home1/machen/hard_label_attacks/paper_figures/defensive_models/{}/".format(args.fig_type)
     os.makedirs(dump_folder, exist_ok=True)
 
-    if "CIFAR" in args.dataset:
-        archs = ['resnet-50_feature_scatter']
-        # archs = ['resnet-50_TRADES',"resnet-50_jpeg","resnet-50_feature_scatter", "resnet-50_feature_distillation","resnet-50_com_defend","resnet-50_adv_train"]
 
-    else:
-        archs = ["resnet50_adv_train_on_ImageNet_linf_4_div_255",
-                 "resnet50_adv_train_on_ImageNet_l2_3"]
 
-    for model in archs:
-        file_path  = dump_folder + "{dataset}_{model}_{norm}_{target_str}_attack.pdf".format(dataset=args.dataset,
-                      model=model, norm=args.norm, target_str="untargeted" if not args.targeted else "targeted")
-        x_label = "Number of Queries"
-        if args.fig_type == "mean_distortion":
-            y_label = "Mean $\ell_2$ Distortion"
-        elif args.fig_type == "median_distortion":
-            y_label = "Median $\ell_2$ Distortion"
+    for dataset in ["ImageNet","CIFAR-10"]:
+        for targeted in [False, True]:
+            if "CIFAR" in dataset:
+                # archs = ['resnet-50_TRADES']
+                archs = ['resnet-50_TRADES', "resnet-50_jpeg", "resnet-50_feature_scatter",
+                         "resnet-50_feature_distillation", "resnet-50_com_defend", "resnet-50_adv_train"]
+            else:
+                # archs = ["resnet50_adv_train_on_ImageNet_linf_4_div_255", "resnet50_adv_train_on_ImageNet_l2_3"]
+                archs = ["jpeg", "resnet50_adv_train_on_ImageNet_l2_3", "resnet50_adv_train_on_ImageNet_linf_4_div_255",
+                         "resnet50_adv_train_on_ImageNet_linf_8_div_255"]
 
-        draw_query_distortion_figure(args.dataset, args.norm, args.targeted, model, args.fig_type, file_path,x_label,y_label)
+            for model in archs:
+                file_path = dump_folder + "{dataset}_{model}_{norm}_{target_str}_attack.pdf".format(dataset=dataset,
+                              model=model, norm=args.norm, target_str="untargeted" if not targeted else "targeted")
+                x_label = "Number of Queries"
+                if args.fig_type == "mean_distortion":
+                    y_label = "Mean $\ell_2$ Distortion"
+                elif args.fig_type == "median_distortion":
+                    y_label = "Median $\ell_2$ Distortion"
+
+                draw_query_distortion_figure(dataset, args.norm, targeted, model, args.fig_type, file_path,x_label,y_label)
 
         # elif args.fig_type == "query_hist":
         #     target_str = "/untargeted" if not args.targeted else "targeted"

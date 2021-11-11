@@ -20,7 +20,7 @@ from biased_boundary_attack.utils.sampling.sampling_provider import SamplingProv
 from biased_boundary_attack.utils.util import sample_hypersphere
 from config import CLASS_NUM, IMAGE_DATA_ROOT, MODELS_TEST_STANDARD
 from dataset.dataset_loader_maker import DataLoaderMaker
-from dataset.target_class_dataset import ImageNetDataset, CIFAR10Dataset, CIFAR100Dataset
+from dataset.target_class_dataset import ImageNetDataset, TinyImageNetDataset, CIFAR10Dataset, CIFAR100Dataset
 from models.defensive_model import DefensiveModel
 from models.standard_model import StandardModel
 import os.path as osp
@@ -464,6 +464,8 @@ class BiasedBoundaryAttack(object):
         for label in target_labels:  # length of target_labels is 1
             if dataset_name == "ImageNet":
                 dataset = ImageNetDataset(IMAGE_DATA_ROOT[dataset_name],label.item(), "validation")
+            elif dataset_name == "TinyImageNet":
+                dataset = TinyImageNetDataset(IMAGE_DATA_ROOT[dataset_name],label.item(), "validation")
             elif dataset_name == "CIFAR-10":
                 dataset = CIFAR10Dataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
             elif dataset_name=="CIFAR-100":

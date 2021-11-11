@@ -8,12 +8,12 @@ import glog as log
 
 from config import CLASS_NUM, IMAGE_DATA_ROOT
 from dataset.dataset_loader_maker import DataLoaderMaker
-from dataset.target_class_dataset import ImageNetDataset, CIFAR10Dataset, CIFAR100Dataset
+from dataset.target_class_dataset import ImageNetDataset, CIFAR10Dataset, CIFAR100Dataset, TinyImageNetDataset
 
 
 class SignOptL2Norm(object):
     def __init__(self, model, dataset, epsilon, targeted, batch_size=1, k=200, alpha=0.2, beta=0.001, iterations=1000,
-                 maximum_queries=10000, svm=False, momentum=0.0, stopping=0.0001,tot=None):
+                 maximum_queries=10000, svm=False, momentum=0.0, tot=None, best_initial_target_sample=False):
         self.model = model
         self.k = k
         self.alpha = alpha
@@ -22,10 +22,9 @@ class SignOptL2Norm(object):
         self.maximum_queries = maximum_queries
         self.svm = svm
         self.momentum = momentum
-        self.stopping = stopping
         self.epsilon  = epsilon
         self.targeted = targeted
-
+        self.best_initial_target_sample = best_initial_target_sample
         self.dataset = dataset
         self.dataset_loader = DataLoaderMaker.get_test_attacked_data(dataset, batch_size)
         self.batch_size = batch_size
@@ -334,7 +333,6 @@ class SignOptL2Norm(object):
         #### Begin Gradient Descent.
         xg, gg = best_theta, g_theta
         vg = torch.zeros_like(xg)
-        prev_obj = 100000
         for i in range(self.iterations):
             ## gradient estimation at x0 + theta (init)
             if self.svm:
@@ -423,9 +421,45 @@ class SignOptL2Norm(object):
         # success_stop_queries = torch.clamp(success_stop_queries,0,self.maximum_queries)
         return images + gg * xg, query,success_stop_queries, torch.tensor([gg]).float(), torch.tensor([gg]).float() <= self.epsilon, xg
 
+    def get_image_of_target_class(self,dataset_name, target_labels, target_model):
+
+        images = []
+        for label in target_labels:  # length of target_labels is 1
+            if dataset_name == "ImageNet":
+                dataset = ImageNetDataset(IMAGE_DATA_ROOT[dataset_name],label.item(), "validation")
+            elif dataset_name == "TinyImageNet":
+                dataset = TinyImageNetDataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
+            elif dataset_name == "CIFAR-10":
+                dataset = CIFAR10Dataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
+            elif dataset_name=="CIFAR-100":
+                dataset = CIFAR100Dataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
+
+            index = np.random.randint(0, len(dataset))
+            image, true_label = dataset[index]
+            image = image.unsqueeze(0)
+            if dataset_name == "ImageNet" and target_model.input_size[-1] != 299:
+                image = F.interpolate(image,
+                                       size=(target_model.input_size[-2], target_model.input_size[-1]), mode='bilinear',
+                                       align_corners=False)
+            with torch.no_grad():
+                logits = target_model(image.cuda())
+            while logits.max(1)[1].item() != label.item():
+                index = np.random.randint(0, len(dataset))
+                image, true_label = dataset[index]
+                image = image.unsqueeze(0)
+                if dataset_name == "ImageNet" and target_model.input_size[-1] != 299:
+                    image = F.interpolate(image,
+                                       size=(target_model.input_size[-2], target_model.input_size[-1]), mode='bilinear',
+                                       align_corners=False)
+                image = image.cuda()
+                with torch.no_grad():
+                    logits = target_model(image)
+            assert true_label == label.item()
+            images.append(torch.squeeze(image))
+        return torch.stack(images).cuda() # B,C,H,W
 
 
-    def targetd_attack(self, image_index, images, target_labels):
+    def targeted_attack(self, image_index, images, target_labels):
         """ Attack the original image and return adversarial example
             model: (pytorch model)
             train_dataset: set of training data
@@ -446,42 +480,52 @@ class SignOptL2Norm(object):
 
         num_samples = 100
         best_theta, g_theta = None, float('inf')
-        print("Searching for the initial direction on %d samples: " % (num_samples))
+        log.info("Searching for the initial direction on {} samples: ".format(num_samples))
+        if self.best_initial_target_sample:
+            # Iterate through training dataset. Find best initial point for gradient descent.
+            if self.dataset == "ImageNet":
+                val_dataset = ImageNetDataset(IMAGE_DATA_ROOT[self.dataset], target_label, "validation")
+            elif self.dataset == "CIFAR-10":
+                val_dataset = CIFAR10Dataset(IMAGE_DATA_ROOT[self.dataset], target_label, "validation")
+            elif self.dataset == "CIFAR-100":
+                val_dataset = CIFAR100Dataset(IMAGE_DATA_ROOT[self.dataset], target_label, "validation")
+            val_dataset_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1, num_workers=0, shuffle=False)
+            for i, (xi, yi) in enumerate(val_dataset_loader):
+                if self.dataset == "ImageNet" and self.model.input_size[-1] != 299:
+                    xi = F.interpolate(xi,
+                                           size=(self.model.input_size[-2], self.model.input_size[-1]), mode='bilinear',
+                                           align_corners=False)
+                xi = xi.cuda()
+                yi_pred = self.model(xi).max(1)[1].item()
+                query += 1
+                if yi_pred != target_label:
+                    continue
 
-        # Iterate through training dataset. Find best initial point for gradient descent.
-        if self.dataset == "ImageNet":
-            val_dataset = ImageNetDataset(IMAGE_DATA_ROOT[self.dataset], target_label, "validation")
-        elif self.dataset == "CIFAR-10":
-            val_dataset = CIFAR10Dataset(IMAGE_DATA_ROOT[self.dataset], target_label, "validation")
-        elif self.dataset == "CIFAR-100":
-            val_dataset = CIFAR100Dataset(IMAGE_DATA_ROOT[self.dataset], target_label, "validation")
-        val_dataset_loader = torch.utils.data.DataLoader(val_dataset, batch_size=1, num_workers=0, shuffle=False)
-        for i, (xi, yi) in enumerate(val_dataset_loader):
-            if self.dataset == "ImageNet" and self.model.input_size[-1] != 299:
-                xi = F.interpolate(xi,
-                                       size=(self.model.input_size[-2], self.model.input_size[-1]), mode='bilinear',
-                                       align_corners=False)
-            xi = xi.cuda()
-            yi_pred = self.model(xi).max(1)[1].item()
-            query += 1
-            if yi_pred != target_label:
-                continue
+                theta = xi - images
+                initial_lbd = torch.linalg.norm(theta)
+                theta /= initial_lbd
+                lbd, count = self.fine_grained_binary_search_targeted(images, target_label, theta, initial_lbd,
+                                                                      g_theta)
+                query += count
+                if lbd < g_theta:
+                    best_theta, g_theta = theta, lbd
+                    self.count_stop_query_and_distortion(images, images + best_theta * g_theta, query,
+                                                         success_stop_queries, batch_image_positions)
+                    log.info("{}-th image. Found initial target image with the distortion {:.4f}".format(image_index+1, g_theta))
 
+                if i > 100:
+                    break
+        else:
+            xi = self.get_image_of_target_class(self.dataset, target_labels, self.model)
             theta = xi - images
             initial_lbd = torch.linalg.norm(theta)
             theta /= initial_lbd
             lbd, count = self.fine_grained_binary_search_targeted(images, target_label, theta, initial_lbd,
                                                                   g_theta)
             query += count
-            if lbd < g_theta:
-                best_theta, g_theta = theta, lbd
-                self.count_stop_query_and_distortion(images, images + best_theta * g_theta, query,
-                                                     success_stop_queries, batch_image_positions)
-                log.info("{}-th image. Found initial target image with the distortion {:.4f}".format(image_index+1, g_theta))
-
-            if i > 100:
-                break
-
+            best_theta, g_theta = theta, lbd
+            self.count_stop_query_and_distortion(images, images + best_theta * g_theta, query,
+                                                 success_stop_queries, batch_image_positions)
         if g_theta == np.inf:
             log.info("{}-th image couldn't find valid initial, failed!".format(image_index + 1))
             return images, query, success_stop_queries, torch.zeros(images.size(0)), torch.zeros(images.size(0)), best_theta
@@ -546,15 +590,16 @@ class SignOptL2Norm(object):
             xg, gg = min_theta, min_g2
 
             ls_total += ls_count
-
+            log.info("{}-th Image, iteration {}, distortion {:.4f}, num_queries {}".format(image_index + 1, i + 1, gg,
+                                                                                           query[0].item()))
             if query.min().item() >= self.maximum_queries:
                 break
 
-            log.info(
-                "{}-th image success distortion {:.4f} queries {} stop queries {}".format(image_index + 1,
-                                                                                                  gg,
-                                                                                                  query[0].item(),
-                                                                                                  success_stop_queries[0].item()))
+        log.info(
+            "{}-th image success distortion {:.4f} queries {} stop queries {}".format(image_index + 1,
+                                                                                              gg,
+                                                                                              query[0].item(),
+                                                                                              success_stop_queries[0].item()))
 
         adv_target = self.model(images + gg * xg).max(1)[1].item()
         if adv_target == target_label:
@@ -563,7 +608,7 @@ class SignOptL2Norm(object):
                                                                                                        query[0].item(), success_stop_queries[0].item(),
                                                                                                        ls_total))
         else:
-            print("{}-th image is failed to find targeted adversarial example.".format(image_index+1))
+            log.info("{}-th image is failed to find targeted adversarial example.".format(image_index+1))
 
         distortion = torch.norm(gg * xg, p=2)
         assert distortion.item() - gg < 1e-4, "gg:{:.4f}  dist:{:.4f}".format(gg, distortion.item())
@@ -583,7 +628,9 @@ class SignOptL2Norm(object):
             self.distortion_all[index_over_all_images][query[inside_batch_index].item()] = dist[inside_batch_index].item()
 
     def attack_all_images(self, args, arch_name, result_dump_path):
-
+        if args.targeted and args.target_type == "load_random":
+            loaded_target_labels = np.load("./target_class_labels/{}/label.npy".format(args.dataset))
+            loaded_target_labels = torch.from_numpy(loaded_target_labels).long()
         for batch_index, (images, true_labels) in enumerate(self.dataset_loader):
             if args.dataset == "ImageNet" and self.model.input_size[-1] != 299:
                 images = F.interpolate(images,
@@ -607,6 +654,9 @@ class SignOptL2Norm(object):
                         target_labels[invalid_target_index] = torch.randint(low=0, high=logit.shape[1],
                                                                             size=target_labels[invalid_target_index].shape).long()
                         invalid_target_index = target_labels.eq(true_labels)
+                elif args.target_type == "load_random":
+                    target_labels = loaded_target_labels[selected]
+                    assert target_labels[0].item()!=true_labels[0].item()
                 elif args.target_type == 'least_likely':
                     target_labels = logit.argmin(dim=1).detach().cpu()
                 elif args.target_type == "increment":
@@ -618,7 +668,7 @@ class SignOptL2Norm(object):
             # return images + gg * xg, query,success_stop_queries, gg, gg <= self.epsilon, xg
             # adv, distortion, is_success, nqueries, theta_signopt
             if args.targeted:
-                adv_images, query, success_query, distortion_with_max_queries, success_epsilon, theta_signopt = self.targetd_attack(batch_index, images, target_labels)
+                adv_images, query, success_query, distortion_with_max_queries, success_epsilon, theta_signopt = self.targeted_attack(batch_index, images, target_labels)
             else:
                 adv_images, query, success_query, distortion_with_max_queries, success_epsilon, theta_signopt = self.untargeted_attack(batch_index,
                                                                                                                     images,  true_labels)

@@ -67,14 +67,19 @@ def read_all_data(dataset_path_dict, arch, query_budgets, stats="mean_distortion
 
 
 
-method_name_to_paper = {"tangent_attack":"Tangent Attack",  "HSJA":"HopSkipJumpAttack",
-                       "SignOPT":"Sign-OPT", "SVMOPT":"SVM-OPT", "boundary_attack":"Boundary Attack"}
+method_name_to_paper = {"tangent_attack":"Tangent Attack(hemisphere)",
+                        "ellipsoid_tangent_attack":"Tangent Attack(semi-ellipsoid)",
+                        "HSJA":"HopSkipJumpAttack"}
+                       #"SignOPT":"Sign-OPT", "SVMOPT":"SVM-OPT", "boundary_attack":"Boundary Attack"}
 
                         #, "RayS": "RayS","GeoDA": "GeoDA"}
                         #"biased_boundary_attack": "Biased Boundary Attack"}
 
 def from_method_to_dir_path(dataset, method, norm, targeted):
     if method == "tangent_attack":
+        path = "{method}-{dataset}-{norm}-{target_str}".format(method=method, dataset=dataset,
+                                                                norm=norm, target_str="untargeted" if not targeted else "targeted_increment")
+    elif method == "ellipsoid_tangent_attack":
         path = "{method}-{dataset}-{norm}-{target_str}".format(method=method, dataset=dataset,
                                                                 norm=norm, target_str="untargeted" if not targeted else "targeted_increment")
     elif method == "HSJA":
@@ -142,7 +147,7 @@ def draw_query_distortion_figure(dataset, norm, targeted, arch, fig_type, dump_f
     # markers = [".",",","o","^","s","p","x"]
     # max_x = 0
     # min_x = 0
-    our_method = 'Tangent Attack'
+    our_method = 'Tangent Attack(hemisphere)'
 
     xtick = np.array([500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000])
     if max_query == 20000:
@@ -160,10 +165,10 @@ def draw_query_distortion_figure(dataset, norm, targeted, arch, fig_type, dump_f
             max_y = np.max(y)
         if np.min(y) < min_y:
             min_y = np.min(y)
-        line, = plt.plot(x, y, label=method, color=color, linestyle="-",linewidth=1.0)  # FIXME
+        line, = plt.plot(x, y, label=method, color=color, linestyle="-",linewidth=0.3)  # FIXME
         #line, = plt.plot(x, y, label=method, color=color, linestyle="-")
         y_points = np.interp(xtick, x, y)
-        plt.scatter(xtick, y_points,color=color,marker='.',s=30)
+        plt.scatter(xtick, y_points,color=color,marker='.',s=10)
         # plt.scatter(xtick, y_points, color=color, marker='.')
     if dataset!="ImageNet":
         plt.gca().yaxis.set_major_formatter(StrMethodFormatter('{x:,.2f}'))
@@ -215,11 +220,11 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
-    dump_folder = "/home1/machen/hard_label_attacks/paper_figures/{}/".format(args.fig_type)
+    dump_folder = "/home1/machen/hard_label_attacks/paper_figures/rebuttal_R4/"
     os.makedirs(dump_folder, exist_ok=True)
 
     if "CIFAR" in args.dataset:
-        archs = ['pyramidnet272',"gdas","WRN-28-10-drop", "WRN-40-10-drop"]
+        archs = ["WRN-28-10-drop"]
     else:
         archs = ["resnext101_64x4d","inceptionv4","senet154","resnet101","inceptionv3"]
     for model in archs:

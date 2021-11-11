@@ -1,3 +1,17 @@
+import os
+import sys
+from collections import defaultdict, OrderedDict, deque
+
+import cv2
+import torch
+import tempfile
+import numpy as np
+# use MPI Spawn to start workers
+from mpi4py import MPI
+
+from dataset.dataset_loader_maker import DataLoaderMaker
+import glog as log
+
 class Evolutionary(object):
     ''' Evolutionary. A black-box decision-based method.
     - Supported distance metric: ``l_2``.
@@ -5,36 +19,38 @@ class Evolutionary(object):
     - References: https://arxiv.org/abs/1904.04433.
     '''
 
-    def __init__(self, model, batch_size, goal, session, dimension_reduction=None, iteration_callback=None):
+    def __init__(self, model, dataset, batch_size, clip_min, clip_max, targeted, maximum_queries, dimension_reduction=None):
         ''' Initialize Evolutionary.
         :param model: The model to attack. A ``realsafe.model.Classifier`` instance.
         :param batch_size: Batch size for the ``batch_attack()`` method.
-        :param goal: Adversarial goals. All supported values are ``'t'``, ``'tm'``, and ``'ut'``.
-        :param session: The ``tf.Session`` to run the attack in. The ``model`` should be loaded into this session.
         :param dimension_reduction: ``(height, width)``.
         :param iteration_callback: A function accept a ``xs`` ``tf.Tensor`` (the original examples) and a ``xs_adv``
             ``tf.Tensor`` (the adversarial examples for ``xs``). During ``batch_attack()``, this callback function would
             be runned after each iteration, and its return value would be yielded back to the caller. By default,
             ``iteration_callback`` is ``None``.
         '''
-        self.model, self.batch_size, self.goal, self._session = model, batch_size, goal, session
-
+        self.model, self.batch_size = model, batch_size
+        self.dataset_loader = DataLoaderMaker.get_test_attacked_data(dataset, batch_size)
+        self.total_images = len(self.dataset_loader.dataset)
+        self.clip_min = clip_min
+        self.clip_max = clip_max
+        self.targeted = targeted
+        self.maximum_queries = maximum_queries
         self.dimension_reduction = dimension_reduction
         if self.dimension_reduction is not None:
             # to avoid import tensorflow in other processes, we cast the dimension to basic type
             self.dimension_reduction = (int(self.dimension_reduction[0]), int(self.dimension_reduction[1]))
 
-        self.xs_ph = tf.placeholder(self.model.x_dtype, shape=(self.batch_size, *self.model.x_shape))
-        self.xs_ph_labels = self.model.labels(self.xs_ph)
+        self.query_all = torch.zeros(self.total_images)
+        self.distortion_all = defaultdict(OrderedDict)  # key is image index, value is {query: distortion}
+        self.correct_all = torch.zeros_like(self.query_all)  # number of images
+        self.not_done_all = torch.zeros_like(self.query_all)  # always set to 0 if the original image is misclassified
+        self.success_all = torch.zeros_like(self.query_all)
+        self.success_query_all = torch.zeros_like(self.query_all)
+        self.distortion_with_max_queries_all = torch.zeros_like(self.query_all)
 
-        self.iteration_callback = None
-        if iteration_callback is not None:
-            # store the original examples in GPU
-            self.xs_var = tf.Variable(tf.zeros_like(self.xs_ph))
-            self.setup_xs_var = self.xs_var.assign(self.xs_ph)
-            self.iteration_callback = iteration_callback(self.xs_var, self.xs_ph)
 
-        self.logger = None
+
 
     def split_trunks(self, xs, n):
         N = len(xs)
@@ -100,8 +116,7 @@ class Evolutionary(object):
                            shape=(self.batch_size, *self.model.x_shape))
         xs_adv_shm = np.memmap(xs_adv_shm_file.name, dtype=self.model.x_dtype.as_numpy_dtype, mode='w+',
                                shape=(self.batch_size, *self.model.x_shape))
-        # use MPI Spawn to start workers
-        from mpi4py import MPI
+
         # use a proper number of processes
         nprocs = self.batch_size if self.batch_size <= self.maxprocs else self.maxprocs
         # since we use memmap here, run everything on localhost
@@ -190,3 +205,100 @@ class Evolutionary(object):
                 return exp.value
         else:
             return g
+
+    def attack(self, index, x, starting_point, y, y_target,
+               x_dtype, x_shape, x_min, x_max,
+               mu, sigma, decay_factor, c, dimension_reduction,
+               logs, xs_adv_shm):
+
+        def fn_is_adversarial(label):
+            if not self.targeted:
+                return label != y
+            else:
+                return label == y_target
+
+        def fn_mean_square_distance(x1, x2):
+            return np.mean((x1 - x2) ** 2) / ((x_max - x_min) ** 2)
+
+        x_label = yield x
+        if fn_is_adversarial(x_label):
+            log.info('{}: The original image is already adversarial'.format(index))
+            xs_adv_shm[index] = x
+            return
+
+        xs_adv_shm[index] = starting_point
+        x_adv = starting_point
+        dist = fn_mean_square_distance(x, x_adv)
+        stats_adversarial = deque(maxlen=30)
+
+        if dimension_reduction:
+            assert len(x_shape) == 3
+            pert_shape = (*dimension_reduction, x_shape[2])
+        else:
+            pert_shape = x_shape
+
+        N = np.prod(pert_shape)
+        K = int(N / 20)
+
+        evolution_path = np.zeros(pert_shape, dtype=x_dtype)
+        diagonal_covariance = np.ones(pert_shape, dtype=x_dtype)
+
+        x_adv_label = yield x_adv
+
+        log.info('{}: step {}, {:.5e}, prediction={}, stepsizes={:.1e}/{:.1e}: {}'.format(
+            index, 0, dist, x_adv_label, sigma, mu, ''
+        ))
+
+        step = 0
+        while True:
+            step += 1
+            unnormalized_source_direction = x - x_adv
+            source_norm = np.linalg.norm(unnormalized_source_direction)
+
+            selection_probability = diagonal_covariance.reshape(-1) / np.sum(diagonal_covariance)
+            selected_indices = np.random.choice(N, K, replace=False, p=selection_probability)
+
+            perturbation = np.random.normal(0.0, 1.0, pert_shape).astype(x_dtype)
+            factor = np.zeros([N], dtype=x_dtype)
+            factor[selected_indices] = 1
+            perturbation *= factor.reshape(pert_shape) * np.sqrt(diagonal_covariance)
+
+            if dimension_reduction:
+                perturbation_large = cv2.resize(perturbation, x_shape[:2])
+            else:
+                perturbation_large = perturbation
+
+            biased = x_adv + mu * unnormalized_source_direction
+            candidate = biased + sigma * source_norm * perturbation_large / np.linalg.norm(perturbation_large)
+            candidate = x - (x - candidate) / np.linalg.norm(x - candidate) * np.linalg.norm(x - biased)
+            candidate = np.clip(candidate, x_min, x_max)
+
+            candidate_label = yield candidate
+
+            is_adversarial = fn_is_adversarial(candidate_label)
+            stats_adversarial.appendleft(is_adversarial)
+
+            if is_adversarial:
+                xs_adv_shm[index] = candidate
+                new_x_adv = candidate
+                new_dist = fn_mean_square_distance(new_x_adv, x)
+                evolution_path = decay_factor * evolution_path + np.sqrt(1 - decay_factor ** 2) * perturbation
+                diagonal_covariance = (1 - c) * diagonal_covariance + c * (evolution_path ** 2)
+            else:
+                new_x_adv = None
+
+            message = ''
+            if new_x_adv is not None:
+                abs_improvement = dist - new_dist
+                rel_improvement = abs_improvement / dist
+                message = 'd. reduced by {:.2f}% ({:.4e})'.format(rel_improvement * 100, abs_improvement)
+                x_adv, dist = new_x_adv, new_dist
+                x_adv_label = candidate_label
+
+            log.info('{}: step {}, {:.5e}, prediction={}, stepsizes={:.1e}/{:.1e}: {}'.format(
+                index, step, dist, x_adv_label, sigma, mu, message))
+
+            if len(stats_adversarial) == stats_adversarial.maxlen:
+                p_step = np.mean(stats_adversarial)
+                mu *= np.exp(p_step - 0.2)
+                stats_adversarial.clear()

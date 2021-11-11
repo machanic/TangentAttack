@@ -12,6 +12,32 @@ import seaborn as sns
 from matplotlib.ticker import StrMethodFormatter
 
 from config import MODELS_TEST_STANDARD
+from matplotlib import rcParams, rc
+
+rcParams['xtick.direction'] = 'out'
+rcParams['ytick.direction'] = 'out'
+rcParams['pdf.fonttype'] = 42
+rcParams['ps.fonttype'] = 42
+rc('pdf', fonttype=42)
+
+linestyle_dict = OrderedDict(
+    [('solid',               (0, ())),
+     ('loosely dotted',      (0, (1, 10))),
+     ('dotted',              (0, (1, 5))),
+     ('densely dotted',      (0, (1, 1))),
+
+     ('loosely dashed',      (0, (5, 10))),
+     ('dashed',              (0, (5, 5))),
+     ('densely dashed',      (0, (5, 1))),
+
+     ('loosely dashdotted',  (0, (3, 10, 1, 10))),
+     ("dashdot","dashdot"),
+     ('dashdotted',          (0, (3, 5, 1, 5))),
+     ('densely dashdotted',  (0, (3, 1, 1, 1))),
+
+     ('loosely dashdotdotted', (0, (3, 10, 1, 10, 1, 10))),
+     ('dashdotdotted',         (0, (3, 5, 1, 5, 1, 5))),
+     ('densely dashdotdotted', (0, (3, 1, 1, 1, 1, 1)))])
 
 
 def read_json_data(json_path):
@@ -68,7 +94,9 @@ def read_all_data(dataset_path_dict, arch, query_budgets, stats="mean_distortion
 
 
 
-method_name_to_paper = {"tangent_attack":"Tangent Attack",  "HSJA":"HopSkipJumpAttack", "HSJARandom":"RandomHopSkipJumpAttack"}
+method_name_to_paper = {"tangent_attack":"TA",
+                        "ellipsoid_tangent_attack":"G-TA",
+                        "HSJA":"HSJA", "HSJARandom":"RandomHSJA"}
                        # "SignOPT":"Sign-OPT", "SVMOPT":"SVM-OPT"}
                         #"boundary_attack":"Boundary Attack", "RayS": "RayS","GeoDA": "GeoDA"}
                         #"biased_boundary_attack": "Biased Boundary Attack"}
@@ -101,6 +129,9 @@ def from_method_to_dir_path(dataset, method, norm, targeted, num_eval_grads):
 
 def from_method_to_dir_path_for_direction_study(dataset, method, norm, targeted, num_eval_grads):
     if method == "tangent_attack":
+        path = "{method}-{dataset}-{norm}-{target_str}".format(method=method, dataset=dataset,num_eval_grads=num_eval_grads,
+                                                                norm=norm, target_str="untargeted" if not targeted else "targeted_increment")
+    if method == "ellipsoid_tangent_attack":
         path = "{method}-{dataset}-{norm}-{target_str}".format(method=method, dataset=dataset,num_eval_grads=num_eval_grads,
                                                                 norm=norm, target_str="untargeted" if not targeted else "targeted_increment")
     elif method == "HSJA":
@@ -154,7 +185,7 @@ def draw_query_distortion_figure(dataset, norm, targeted, arch, fig_type, dump_f
 
     # fig_type can be [query_success_rate_dict, query_threshold_success_rate_dict, success_rate_to_avg_query]
     method = "tangent_attack"
-    dataset_path_dict= get_all_exists_folder(dataset, method, norm, targeted, [30,50,70,100,150,200])
+    dataset_path_dict= get_all_exists_folder(dataset, method, norm, targeted, [5,10,30,50,70,100,150,200])
     max_query = 10000
     if dataset=="ImageNet" and targeted:
         max_query = 20000
@@ -163,11 +194,11 @@ def draw_query_distortion_figure(dataset, norm, targeted, arch, fig_type, dump_f
     # query_budgets = np.insert(query_budgets,0, [200,300,400])
     data_info = read_all_data(dataset_path_dict, arch, query_budgets, fig_type)  # fig_type can be mean_distortion or median_distortion
     plt.style.use('seaborn-whitegrid')
-    plt.figure(figsize=(10, 8))
-    colors = ['b', 'g',  'c', 'm', 'y', 'k', 'orange', "pink","brown","slategrey","cornflowerblue","greenyellow"]
-    # markers = [".",",","o","^","s","p","x"]
-    # max_x = 0
-    # min_x = 0
+    plt.figure(figsize=(15, 15))
+    colors = ['b', 'g', 'c', 'y', 'k', 'peru', "gold","rosybrown"]
+    markers = ['o', '>', '*', 's', "X", "h","P","D"]
+    linestyles = ["solid", "dashed", "densely dotted", "dashdotdotted", "densely dashed", "densely dashdotdotted","loosely dashed","dashdot"]
+
 
     xtick = np.array([500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000])
     if max_query == 20000:
@@ -175,7 +206,23 @@ def draw_query_distortion_figure(dataset, norm, targeted, arch, fig_type, dump_f
     max_y = 0
     min_y= 999
     for idx, ((dataset, norm, targeted, method, num_eval_grad), (x,y)) in enumerate(data_info.items()):
-        color = colors[idx%len(colors)]
+        color = colors[idx]
+        if num_eval_grad==30:
+            continue
+        x = np.asarray(x)
+        y = np.asarray(y)
+        if np.max(y) > max_y:
+            max_y = np.max(y)
+        if np.min(y) < min_y:
+            min_y = np.min(y)
+        line, = plt.plot(x, y, label="$B_0={}$".format(num_eval_grad), color=color, linestyle=linestyle_dict[linestyles[idx]],
+                         marker=markers[idx], markersize=20, linewidth=3.0)
+
+
+    for idx, ((dataset, norm, targeted, method, num_eval_grad), (x,y)) in enumerate(data_info.items()):
+        color = colors[idx]
+        if num_eval_grad!=30:
+            continue
         if num_eval_grad==30:
             color='r'
         x = np.asarray(x)
@@ -184,11 +231,9 @@ def draw_query_distortion_figure(dataset, norm, targeted, arch, fig_type, dump_f
             max_y = np.max(y)
         if np.min(y) < min_y:
             min_y = np.min(y)
-        line, = plt.plot(x, y, label=method+ " $B_0={}$".format(num_eval_grad), color=color, linestyle="-",linewidth=1.0)  # FIXME
-        #line, = plt.plot(x, y, label=method, color=color, linestyle="-")
-        y_points = np.interp(xtick, x, y)
-        plt.scatter(xtick, y_points,color=color,marker='.',s=20)
-        # plt.scatter(xtick, y_points, color=color, marker='.')
+        line, = plt.plot(x, y, label="$B_0={}$".format(num_eval_grad), color=color, linestyle=linestyle_dict[linestyles[idx]],
+                         marker=markers[idx], markersize=20, linewidth=3.0)
+
     if dataset!="ImageNet":
         plt.gca().yaxis.set_major_formatter(StrMethodFormatter('{x:,.2f}'))
     else:
@@ -204,22 +249,25 @@ def draw_query_distortion_figure(dataset, norm, targeted, arch, fig_type, dump_f
     print("max y is {}".format(max_y))
     # xtick = [0, 5000, 10000]
     if dataset == "ImageNet" and targeted:
-        x_ticks = xtick[1::2]
+        x_ticks = xtick[::2]
         x_ticks = x_ticks.tolist()
-        x_ticks.append(21000)
-        x_ticks_label = ["{}K".format(x_tick//1000) for x_tick in x_ticks]
-        plt.xticks(x_ticks, x_ticks_label, fontsize=18)  # remove 500
+        x_ticks_label = ["{}K".format(x_tick // 1000) for x_tick in x_ticks]
+        xtick[0] = 0
+        x_ticks_label[0] = "0"
+        plt.xticks(x_ticks, x_ticks_label, fontsize=38)  # remove 500
     else:
-        x_ticks_label = ["{}K".format(x_tick // 1000) for x_tick in xtick[1:]]
-        plt.xticks(xtick[1:], x_ticks_label, fontsize=18) # remove 500
+        x_ticks_label = ["{}K".format(x_tick // 1000) for x_tick in xtick]
+        xtick[0] = 0
+        x_ticks_label[0] = "0"
+        plt.xticks(xtick, x_ticks_label, fontsize=38) # remove 500
     if dataset=="ImageNet":
         yticks = np.arange(0, max_y+1, 5)
-        plt.yticks(yticks, fontsize=18)
+        plt.yticks(yticks, fontsize=38)
     else:
-        plt.yticks([0.1,1, max_y/2, max_y+0.1], fontsize=18)
-    plt.xlabel(xlabel, fontsize=20)
-    plt.ylabel(ylabel, fontsize=20)
-    plt.legend(loc='upper right', prop={'size': 20})
+        plt.yticks([0.1,1, max_y/2, max_y+0.1], fontsize=38)
+    plt.xlabel(xlabel, fontsize=55)
+    plt.ylabel(ylabel, fontsize=55)
+    plt.legend(loc='upper right', prop={'size': 45},labelcolor='linecolor',fancybox=True, framealpha=0.5,frameon=True)
     plt.savefig(dump_file_path, dpi=200)
     plt.close()
     print("save to {}".format(dump_file_path))
@@ -237,12 +285,13 @@ def draw_random_HSJA_TangentAttack_query_distortion_figure(dataset, norm, target
     # query_budgets = np.insert(query_budgets,0, [200,300,400])
     data_info = read_all_data(dataset_path_dict, arch, query_budgets, fig_type)  # fig_type can be mean_distortion or median_distortion
     plt.style.use('seaborn-whitegrid')
-    plt.figure(figsize=(10, 8))
-    colors = ['b', 'g',  'b', 'm', 'y', 'k', 'orange', "pink","brown","slategrey","cornflowerblue","greenyellow"]
-    # markers = [".",",","o","^","s","p","x"]
-    # max_x = 0
-    # min_x = 0
-    our_method = 'Tangent Attack'
+    plt.figure(figsize=(15, 15))
+    colors = ['b', 'g', 'c', 'y', 'k', 'peru', "gold", "rosybrown"]
+    markers = ['>', 'o', '*', "P", "+", "h"]
+    linestyles = ["dashed","solid","densely dotted", "densely dashed", "densely dashdotdotted",
+                  "loosely dashed", "dashdot"]
+    our_method1 = 'TA'
+    our_method2 = 'G-TA'
 
     xtick = np.array([500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000])
     if max_query == 20000:
@@ -251,7 +300,7 @@ def draw_random_HSJA_TangentAttack_query_distortion_figure(dataset, norm, target
     min_y= 999
     for idx, ((dataset, norm, targeted, method, num_eval_grad), (x,y)) in enumerate(data_info.items()):
         color = colors[idx%len(colors)]
-        if method == "Tangent Attack":
+        if method == our_method2:
             color = "r"
         x = np.asarray(x)
         y = np.asarray(y)
@@ -259,11 +308,8 @@ def draw_random_HSJA_TangentAttack_query_distortion_figure(dataset, norm, target
             max_y = np.max(y)
         if np.min(y) < min_y:
             min_y = np.min(y)
-        line, = plt.plot(x, y, label=method+ " $B_0={}$".format(num_eval_grad), color=color, linestyle="-",linewidth=1.0)  # FIXME
-        #line, = plt.plot(x, y, label=method, color=color, linestyle="-")
-        y_points = np.interp(xtick, x, y)
-        plt.scatter(xtick, y_points,color=color,marker='.',s=20)
-        # plt.scatter(xtick, y_points, color=color, marker='.')
+        line, = plt.plot(x, y, label=method, color=color, linestyle=linestyle_dict[linestyles[idx]],
+                         marker=markers[idx], markersize=20, linewidth=3.0)
     if dataset!="ImageNet":
         plt.gca().yaxis.set_major_formatter(StrMethodFormatter('{x:,.2f}'))
     else:
@@ -279,22 +325,25 @@ def draw_random_HSJA_TangentAttack_query_distortion_figure(dataset, norm, target
     print("max y is {}".format(max_y))
     # xtick = [0, 5000, 10000]
     if dataset == "ImageNet" and targeted:
-        x_ticks = xtick[1::2]
+        x_ticks = xtick[::2]
         x_ticks = x_ticks.tolist()
-        x_ticks.append(21000)
         x_ticks_label = ["{}K".format(x_tick // 1000) for x_tick in x_ticks]
-        plt.xticks(x_ticks,x_ticks_label, fontsize=18)  # remove 500
+        x_ticks[0] = 0
+        x_ticks_label[0] = "0"
+        plt.xticks(x_ticks,x_ticks_label, fontsize=38)  # remove 500
     else:
-        x_ticks_label = ["{}K".format(x_tick // 1000) for x_tick in xtick[1:]]
-        plt.xticks(xtick[1:],x_ticks_label, fontsize=18) # remove 500
+        x_ticks_label = ["{}K".format(x_tick // 1000) for x_tick in xtick]
+        xtick[0] = 0
+        x_ticks_label[0] = "0"
+        plt.xticks(xtick,x_ticks_label, fontsize=38) # remove 500
     if dataset=="ImageNet":
         yticks = np.arange(0, max_y+1, 5)
-        plt.yticks(yticks, fontsize=18)
+        plt.yticks(yticks, fontsize=38)
     else:
-        plt.yticks([0.1,1, max_y/2, max_y+0.1], fontsize=18)
-    plt.xlabel(xlabel, fontsize=20)
-    plt.ylabel(ylabel, fontsize=20)
-    plt.legend(loc='upper right', prop={'size': 19})
+        plt.yticks([0.1,1, max_y/2, max_y+0.1], fontsize=38)
+    plt.xlabel(xlabel, fontsize=55)
+    plt.ylabel(ylabel, fontsize=55)
+    plt.legend(loc='upper right', prop={'size': 45},labelcolor='linecolor',fancybox=True, framealpha=0.5,frameon=True)
     plt.savefig(dump_file_path, dpi=200)
     plt.close()
     print("save to {}".format(dump_file_path))
@@ -330,8 +379,9 @@ if __name__ == "__main__":
         elif args.fig_type == "median_distortion":
             y_label = "Median $\ell_2$ Distortion"
 
-        draw_random_HSJA_TangentAttack_query_distortion_figure(args.dataset, args.norm, args.targeted, model, args.fig_type, file_path,x_label,y_label)
-
+        # draw_query_distortion_figure(args.dataset, args.norm, args.targeted, model, args.fig_type, file_path,x_label,y_label)
+        draw_random_HSJA_TangentAttack_query_distortion_figure(args.dataset, args.norm, args.targeted,
+                                                                model, args.fig_type, file_path, x_label,y_label)
         # elif args.fig_type == "query_hist":
         #     target_str = "/untargeted" if not args.targeted else "targeted"
         #     os.makedirs(dump_folder, exist_ok=True)

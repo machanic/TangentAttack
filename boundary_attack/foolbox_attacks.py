@@ -16,8 +16,8 @@ import getpass
 import torch
 import numpy as np
 
-from config import CLASS_NUM, IMAGE_DATA_ROOT
-from dataset.target_class_dataset import CIFAR10Dataset, CIFAR100Dataset, ImageNetDataset
+from config import CLASS_NUM, IMAGE_DATA_ROOT, MODELS_TEST_STANDARD
+from dataset.target_class_dataset import CIFAR10Dataset, CIFAR100Dataset, ImageNetDataset,TinyImageNetDataset
 from dataset.dataset_loader_maker import DataLoaderMaker
 from models.standard_model import StandardModel
 from models.defensive_model import DefensiveModel
@@ -127,7 +127,8 @@ def get_image_of_target_class(dataset_name, target_labels, target_model):
             dataset = CIFAR10Dataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
         elif dataset_name=="CIFAR-100":
             dataset = CIFAR100Dataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
-
+        elif dataset_name == "TinyImageNet":
+            dataset = TinyImageNetDataset(IMAGE_DATA_ROOT[dataset_name],label.item(), "validation")
         index = np.random.randint(0, len(dataset))
         image, true_label = dataset[index]
         image = image.unsqueeze(0)
@@ -441,14 +442,21 @@ if __name__ == '__main__':
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
-    if args.attack_defense:
-        if args.defense_model == "adv_train_on_ImageNet":
-            save_result_path = args.exp_dir + "/{}_{}_{}_{}_result.json".format(args.arch, args.defense_model,
-                                                                                args.defense_norm, args.defense_eps)
-        else:
-            save_result_path = args.exp_dir + "/{}_{}_result.json".format(args.arch, args.defense_model)
+    if args.all_archs:
+        archs = MODELS_TEST_STANDARD[args.dataset]
     else:
-        save_result_path = args.exp_dir + "/{}_result.json".format(args.arch)
-    log.info("After attack finished, the result json file will be dumped to {}".format(save_result_path))
-    # do the business
-    main(args, save_result_path)
+        assert args.arch is not None
+        archs = [args.arch]
+    for arch in archs:
+        args.arch = arch
+        if args.attack_defense:
+            if args.defense_model == "adv_train_on_ImageNet":
+                save_result_path = args.exp_dir + "/{}_{}_{}_{}_result.json".format(arch, args.defense_model,
+                                                                                    args.defense_norm, args.defense_eps)
+            else:
+                save_result_path = args.exp_dir + "/{}_{}_result.json".format(arch, args.defense_model)
+        else:
+            save_result_path = args.exp_dir + "/{}_result.json".format(arch)
+        log.info("After attack finished, the result json file will be dumped to {}".format(save_result_path))
+        # do the business
+        main(args, save_result_path)
