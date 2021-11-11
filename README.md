@@ -54,14 +54,13 @@ Once the attack is running, it directly writes the `log` into a newly created `l
 
 Also, you can use the following bash shell to run the attack of different models one by one.
 ```
-./tangent_attack_CIFAR_normal_models.sh
+./tangent_attack_CIFAR_undefended_models.sh
 ```
-The commmand of attacks of defensive models are presented in `tangent_attack_CIFAR_defensive_models.sh`.
-
+The commmand of attacks of defense models are presented in `tangent_attack_CIFAR_defense_models.sh`.
 
 * The gpu device could be specified by the ```--gpu device_id``` argument.
 * the targeted attack can be specified by the `--targeted` argument. If you want to perform untargeted attack, just don't pass it.
-* the attack of defensive model uses `--attack_defense --defense_model adv_train/jpeg/com_defend/TRADES` argument.
+* the attack of defense models uses `--attack_defense --defense_model adv_train/jpeg/com_defend/TRADES` argument.
 # Requirement
 Our code is tested on the following environment (probably also works on other environments without many changes):
 
