@@ -1,13 +1,6 @@
 # Introduction
 This folder includes the source code for "Finding Optimal Tangent Points for Reducing Distortions of Hard-label Attacks", which is submitted to NeurIPS 2021 for double blind review (paper id: 1171).
 
-* This demo version only supports the attack on CIFAR-10 dataset.
-
-* This demo version supports gdas and resnet-50 as the normal victim models (i.e., target model in the paper).
-
-* This demo version supports 5 defensive models which use the backbone of ResNet-50: ComDefend, Adversarial Train (AT), TRADES, Feature Scatter, JPEG.
-
-* Code, model, and data are all included in this project's folders.
 # Citation
 We kindly ask anybody who uses this code to cite the following bibtex:
 
