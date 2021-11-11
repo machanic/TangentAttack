@@ -1,5 +1,5 @@
 # Introduction
-This repository includes the source code for "Finding Optimal Tangent Points for Reducing Distortions of Hard-label Attacks", which is submitted to NeurIPS 2021 for double blind review (paper id: 1171).
+This repository includes the source code for "Finding Optimal Tangent Points for Reducing Distortions of Hard-label Attacks", which is published in NeurIPS 2021.
 
 # Citation
 We kindly ask anybody who uses this code to cite the following bibtex:
