@@ -62,7 +62,7 @@ def read_all_data(dataset_path_dict, arch, query_budgets, stats="mean_distortion
                 x = []
                 y = []
                 for query_budget in query_budgets:
-                    if not targeted and method == "Boundary Attack" and query_budget<1000:
+                    if not targeted and method == "BA" and query_budget<1000:
                         print("Skip boundary attack at {} query budgets".format(query_budget))
                         continue
                     distortion_list = []
@@ -185,9 +185,9 @@ def draw_query_distortion_figure(dataset, norm, targeted, arch, fig_type, dump_f
     our_method1 = 'TA'
     our_method2 = 'G-TA'
 
-    xtick = np.array([ 500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000])
+    xtick = np.array([ 0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000])
     if max_query == 20000:
-        xtick = np.array([ 500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000,11000,12000,13000,14000,15000,16000,17000,18000,19000,20000])
+        xtick = np.array([ 0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000,11000,12000,13000,14000,15000,16000,17000,18000,19000,20000])
     max_y = 0
     min_y= 999
     for idx, ((dataset, norm, targeted, method), (x,y)) in enumerate(data_info.items()):
@@ -206,7 +206,7 @@ def draw_query_distortion_figure(dataset, norm, targeted, arch, fig_type, dump_f
         #line, = plt.plot(x, y, label=method, color=color, linestyle="-")
         xtick_copy = xtick.copy()
         y_points = np.interp(xtick_copy, x, y)
-        if method == "Boundary Attack" and not targeted:
+        if method == "BA" and not targeted:
             mask = xtick_copy>=1000
             xtick_copy = xtick_copy[mask]
             y_points = y_points[mask]
@@ -230,7 +230,7 @@ def draw_query_distortion_figure(dataset, norm, targeted, arch, fig_type, dump_f
         x_ticks = xtick[::2]
         x_ticks = x_ticks.tolist()
         x_ticks_label = ["{}K".format(x_tick // 1000) for x_tick in x_ticks]
-        xtick[0] = 0
+        x_ticks[0] = 0
         x_ticks_label[0] = "0"
         plt.xticks(x_ticks, x_ticks_label, fontsize=38)  # remove 500
     else:

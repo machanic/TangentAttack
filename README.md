@@ -1,5 +1,8 @@
 # Introduction
-This repository includes the source code for "Finding Optimal Tangent Points for Reducing Distortions of Hard-label Attacks", which is published in NeurIPS 2021.
+This repository includes the source code for "Finding Optimal Tangent Points for Reducing Distortions of Hard-label Attacks",
+which is published in NeurIPS 2021.
+
+[[Paper]](https://arxiv.org/abs/2111.07492) [[Slides]](https://raw.githubusercontent.com/machanic/TangentAttack/main/paper_materials/slides.pdf) [[Poster]](https://raw.githubusercontent.com/machanic/TangentAttack/main/paper_materials/poster.pdf)
 
 # Citation
 We kindly ask anybody who uses this code to cite the following bibtex:
@@ -18,17 +21,17 @@ We kindly ask anybody who uses this code to cite the following bibtex:
 # Structure of Folders and Files
 ```
 +-- configures
-|   |-- HSJA.json  # the hyperparameters setting of HSJA, which is also used in Tangent Attack
+|   |-- HSJA.json  # the hyperparameters setting of HSJA, which is also used in Tangent Attack and Generalized Tangent Attack.
 +-- dataset
 |   |-- dataset_loader_maker.py  # it returns the data loader class that includes 1000 attacks images for the experiments.
 |   |-- npz_dataset.py  # it is the dataset class that includes 1000 attacks images for the experiments.
 +-- models
 |   |-- defensive_model.py # the wrapper of defensive networks (e.g., AT, ComDefend, Feature Scatter), and it converts the input image's pixels to the range of 0 to 1 before feeding.
 |   |-- standard_model.py # the wrapper of standard classification networks, and it converts the input image's pixels to the range of 0 to 1 before feeding.
-+-- tangent_attack_hemisphere
++-- tangent_attack_hemisphere # the folder of Tangent Attack (TA) 
 |   |-- attack.py  # the main class for the attack.
 |   |-- tangent_point_analytical_solution.py  # the class for computing the optimal tagent point of the hemisphere.
-+-- tangent_attack_semiellipsoid
++-- tangent_attack_semiellipsoid  # the folder of Generailized Tangent Attack (G-TA)
 |   |-- attack.py  # the main class for the attack.
 |   |-- tangent_point_analytical_solution.py  # the class for computing the optimal tagent point of the semi-ellipsoid.
 +-- cifar_models   # this folder includes the target models of CIFAR-10, i.e., PyramidNet-272, GDAS, WRN-28, and WRN-40 networks.
@@ -37,11 +40,17 @@ We kindly ask anybody who uses this code to cite the following bibtex:
 |-- train_pytorch_model  # the pretrained weights of target models
 |-- attacked_images  # the 1000 image data for evaluation 
 ```
-In general, the `train_pytorch_model` includes the pretrained models' weights, and `attacked_images` includes the image data, which is packaged into `.npz` format with pixel range of `[0-1]`.
+The folder of `attacked_images` contains the 1000 tested images, which are packaged into `.npz` format with the pixel range of `[0-1]`.
+This folder can be downloaded from [https://drive.google.com/file/d/1NkfMPShB9dUuugyFr2T8KTKM4kdwfKC2/view?usp=sharing](https://drive.google.com/file/d/1NkfMPShB9dUuugyFr2T8KTKM4kdwfKC2/view?usp=sharing).
 
-In the attack, all logs are dumped to `logs` folder, the statistical results are also written into `logs` folder, which are `.json` format.
+The folder of `train_pytorch_model` contains the pretrained weights of target models, which can be downloaded from [https://drive.google.com/file/d/1VfCdU14nAhOvumXTIA-B8OC6XwGYvUml/view?usp=sharing](https://drive.google.com/file/d/1VfCdU14nAhOvumXTIA-B8OC6XwGYvUml/view?usp=sharing).
+
+In the attack, all logs are dumped to `logs` folder. The results of attacks are also written into the `logs` folder, which use the `.json` format.
+I have uploaded the compressed zip file of the experimental results onto [https://drive.google.com/file/d/1vng1Gs6YgZs3PGMvfJb-exRRIsrbo5vx/view?usp=sharing](https://drive.google.com/file/d/1vng1Gs6YgZs3PGMvfJb-exRRIsrbo5vx/view?usp=sharing),
+so that you can directly use the results of baseline methods without repeatedly running experiments.
 
 # Attack Command
+
 The following command could run Tangent Attack (TA) and Generalized Tangent Attack (G-TA) on the CIFAR-10 dataset under the untargetd attack's setting:
 
 ```
@@ -78,5 +87,13 @@ Our code is tested on the following environment (probably also works on other en
 
 You can just type `pip install -r requirements.txt` to install packages.
 
-# Download Files of Running Results and Logs
-I have uploaded all the logs and results with the compressed zip file format onto [this google drive link](https://drive.google.com/file/d/1vng1Gs6YgZs3PGMvfJb-exRRIsrbo5vx/view?usp=sharing) so that you can download them.
+# Download Files of Pre-trained Models and Running Results
+In summary, there are three extra folders that can be downloaded, i.e., `attacked_images`, `train_pytorch_model`, and optionally `logs`.
+
+The `attacked_images` can be downloaded from [https://drive.google.com/file/d/1NkfMPShB9dUuugyFr2T8KTKM4kdwfKC2/view?usp=sharing](https://drive.google.com/file/d/1NkfMPShB9dUuugyFr2T8KTKM4kdwfKC2/view?usp=sharing).
+
+The pre-trained weights of the target models can be downloaded from [https://drive.google.com/file/d/1VfCdU14nAhOvumXTIA-B8OC6XwGYvUml/view?usp=sharing](https://drive.google.com/file/d/1VfCdU14nAhOvumXTIA-B8OC6XwGYvUml/view?usp=sharing).
+
+Before running experiments, please download above files and uncompress them to this project's root path.
+
+Also, I have uploaded the compressed zip format files for logs and results onto [https://drive.google.com/file/d/1vng1Gs6YgZs3PGMvfJb-exRRIsrbo5vx/view?usp=sharing](https://drive.google.com/file/d/1vng1Gs6YgZs3PGMvfJb-exRRIsrbo5vx/view?usp=sharing).

@@ -60,7 +60,7 @@ def read_all_data(dataset_path_dict, arch, query_budgets, stats="mean_distortion
                 x = []
                 y = []
                 for query_budget in query_budgets:
-                    if not targeted and method == "Boundary Attack" and query_budget<1000:
+                    if not targeted and method == "BA" and query_budget<1000:
                         print("Skip boundary attack at {} query budgets".format(query_budget))
                         continue
                     distortion_list = []
@@ -225,7 +225,7 @@ def draw_query_distortion_figure(dataset, norm, targeted, arch, fig_type, dump_f
         x_ticks = x_ticks.tolist()
         x_ticks_label = ["{}K".format(x_tick // 1000) for x_tick in x_ticks]
         x_ticks_label[0] = "0"
-        xtick[0] = 0
+        x_ticks[0] = 0
         plt.xticks(x_ticks, x_ticks_label, fontsize=45)  # remove 500
     else:
         x_ticks_label = ["{}K".format(x_tick // 1000) for x_tick in xtick]
@@ -267,34 +267,38 @@ if __name__ == "__main__":
     dump_folder = "/home1/machen/hard_label_attacks/paper_chinese_figures/defensive_models/{}/".format(args.fig_type)
     os.makedirs(dump_folder, exist_ok=True)
 
-    if "CIFAR" in args.dataset:
-        # archs = ['resnet-50_TRADES']
-        archs = ['resnet-50_TRADES',"resnet-50_jpeg","resnet-50_feature_scatter", "resnet-50_feature_distillation","resnet-50_com_defend","resnet-50_adv_train"]
-
-    else:
-        # archs = ["resnet50_adv_train_on_ImageNet_linf_4_div_255", "resnet50_adv_train_on_ImageNet_l2_3"]
-        archs = ["jpeg", "resnet50_adv_train_on_ImageNet_l2_3","resnet50_adv_train_on_ImageNet_linf_4_div_255","resnet50_adv_train_on_ImageNet_linf_8_div_255"]
 
 
-    for model in archs:
-        file_path = dump_folder + "{dataset}_{model}_{norm}_{target_str}_attack.pdf".format(dataset=args.dataset,
-                      model=model, norm=args.norm, target_str="untargeted" if not args.targeted else "targeted")
-        x_label = "查询预算次数"
-        if args.fig_type == "mean_distortion":
-            y_label = "平均$\ell_2$范数失真度"
-        elif args.fig_type == "median_distortion":
-            y_label = "$\ell_2$范数失真度的中位数"
+    for dataset in ["ImageNet","CIFAR-10"]:
+        for targeted in [False, True]:
+            if "CIFAR" in dataset:
+                # archs = ['resnet-50_TRADES']
+                archs = ['resnet-50_TRADES',"resnet-50_jpeg","resnet-50_feature_scatter", "resnet-50_feature_distillation","resnet-50_com_defend","resnet-50_adv_train"]
 
-        draw_query_distortion_figure(args.dataset, args.norm, args.targeted, model, args.fig_type, file_path,x_label,y_label)
+            else:
+                # archs = ["resnet50_adv_train_on_ImageNet_linf_4_div_255", "resnet50_adv_train_on_ImageNet_l2_3"]
+                archs = ["jpeg", "resnet50_adv_train_on_ImageNet_l2_3","resnet50_adv_train_on_ImageNet_linf_4_div_255","resnet50_adv_train_on_ImageNet_linf_8_div_255"]
 
-        # elif args.fig_type == "query_hist":
-        #     target_str = "/untargeted" if not args.targeted else "targeted"
-        #     os.makedirs(dump_folder, exist_ok=True)
-        #     for dataset in ["CIFAR-10","CIFAR-100", "TinyImageNet"]:
-        #         if "CIFAR" in dataset:
-        #             archs = ['pyramidnet272', "gdas", "WRN-28-10-drop", "WRN-40-10-drop"]
-        #         else:
-        #             archs = ["densenet121", "resnext32_4", "resnext64_4"]
-        #         for norm in ["l2","linf"]:
-        #             for model in archs:
-        #                 draw_histogram_fig(dataset, norm, args.targeted, model, dump_folder + target_str)
+
+            for model in archs:
+                file_path = dump_folder + "{dataset}_{model}_{norm}_{target_str}_attack.pdf".format(dataset=dataset,
+                              model=model, norm=args.norm, target_str="untargeted" if not targeted else "targeted")
+                x_label = "查询预算次数"
+                if args.fig_type == "mean_distortion":
+                    y_label = "平均$\ell_2$范数失真度"
+                elif args.fig_type == "median_distortion":
+                    y_label = "$\ell_2$范数失真度的中位数"
+
+                draw_query_distortion_figure(dataset, args.norm, targeted, model, args.fig_type, file_path,x_label,y_label)
+
+                # elif args.fig_type == "query_hist":
+                #     target_str = "/untargeted" if not args.targeted else "targeted"
+                #     os.makedirs(dump_folder, exist_ok=True)
+                #     for dataset in ["CIFAR-10","CIFAR-100", "TinyImageNet"]:
+                #         if "CIFAR" in dataset:
+                #             archs = ['pyramidnet272', "gdas", "WRN-28-10-drop", "WRN-40-10-drop"]
+                #         else:
+                #             archs = ["densenet121", "resnext32_4", "resnext64_4"]
+                #         for norm in ["l2","linf"]:
+                #             for model in archs:
+                #                 draw_histogram_fig(dataset, norm, args.targeted, model, dump_folder + target_str)

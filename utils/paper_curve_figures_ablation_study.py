@@ -195,20 +195,20 @@ def draw_query_distortion_figure(dataset, norm, targeted, arch, fig_type, dump_f
     data_info = read_all_data(dataset_path_dict, arch, query_budgets, fig_type)  # fig_type can be mean_distortion or median_distortion
     plt.style.use('seaborn-whitegrid')
     plt.figure(figsize=(15, 15))
-    colors = ['b', 'g', 'c', 'y', 'k', 'peru', "gold","rosybrown"]
-    markers = ['o', '>', '*', 's', "X", "h","P","D"]
+    colors = ['b', 'g', 'r', 'y', 'k', 'peru', "gold","rosybrown"]
+    markers = ['o', '>', 'P', '*', "X", "h","s","D"]
     linestyles = ["solid", "dashed", "densely dotted", "dashdotdotted", "densely dashed", "densely dashdotdotted","loosely dashed","dashdot"]
 
 
-    xtick = np.array([500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000])
+    xtick = np.array([0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000])
     if max_query == 20000:
-        xtick = np.array([500, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000,11000,12000,13000,14000,15000,16000,17000,18000,19000,20000])
+        xtick = np.array([0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000,11000,12000,13000,14000,15000,16000,17000,18000,19000,20000])
     max_y = 0
     min_y= 999
     for idx, ((dataset, norm, targeted, method, num_eval_grad), (x,y)) in enumerate(data_info.items()):
         color = colors[idx]
-        if num_eval_grad==30:
-            continue
+        # if num_eval_grad==30:
+        #     continue
         x = np.asarray(x)
         y = np.asarray(y)
         if np.max(y) > max_y:
@@ -219,20 +219,20 @@ def draw_query_distortion_figure(dataset, norm, targeted, arch, fig_type, dump_f
                          marker=markers[idx], markersize=20, linewidth=3.0)
 
 
-    for idx, ((dataset, norm, targeted, method, num_eval_grad), (x,y)) in enumerate(data_info.items()):
-        color = colors[idx]
-        if num_eval_grad!=30:
-            continue
-        if num_eval_grad==30:
-            color='r'
-        x = np.asarray(x)
-        y = np.asarray(y)
-        if np.max(y) > max_y:
-            max_y = np.max(y)
-        if np.min(y) < min_y:
-            min_y = np.min(y)
-        line, = plt.plot(x, y, label="$B_0={}$".format(num_eval_grad), color=color, linestyle=linestyle_dict[linestyles[idx]],
-                         marker=markers[idx], markersize=20, linewidth=3.0)
+    # for idx, ((dataset, norm, targeted, method, num_eval_grad), (x,y)) in enumerate(data_info.items()):
+    #     color = colors[idx]
+    #     if num_eval_grad!=30:
+    #         continue
+    #     if num_eval_grad==30:
+    #         color='r'
+    #     x = np.asarray(x)
+    #     y = np.asarray(y)
+    #     if np.max(y) > max_y:
+    #         max_y = np.max(y)
+    #     if np.min(y) < min_y:
+    #         min_y = np.min(y)
+    #     line, = plt.plot(x, y, label="$B_0={}$".format(num_eval_grad), color=color, linestyle=linestyle_dict[linestyles[idx]],
+    #                      marker=markers[idx], markersize=20, linewidth=3.0)
 
     if dataset!="ImageNet":
         plt.gca().yaxis.set_major_formatter(StrMethodFormatter('{x:,.2f}'))
@@ -252,8 +252,8 @@ def draw_query_distortion_figure(dataset, norm, targeted, arch, fig_type, dump_f
         x_ticks = xtick[::2]
         x_ticks = x_ticks.tolist()
         x_ticks_label = ["{}K".format(x_tick // 1000) for x_tick in x_ticks]
-        xtick[0] = 0
         x_ticks_label[0] = "0"
+        x_ticks[0] = 0
         plt.xticks(x_ticks, x_ticks_label, fontsize=38)  # remove 500
     else:
         x_ticks_label = ["{}K".format(x_tick // 1000) for x_tick in xtick]
@@ -379,9 +379,9 @@ if __name__ == "__main__":
         elif args.fig_type == "median_distortion":
             y_label = "Median $\ell_2$ Distortion"
 
-        # draw_query_distortion_figure(args.dataset, args.norm, args.targeted, model, args.fig_type, file_path,x_label,y_label)
-        draw_random_HSJA_TangentAttack_query_distortion_figure(args.dataset, args.norm, args.targeted,
-                                                                model, args.fig_type, file_path, x_label,y_label)
+        draw_query_distortion_figure(args.dataset, args.norm, args.targeted, model, args.fig_type, file_path,x_label,y_label)
+        # draw_random_HSJA_TangentAttack_query_distortion_figure(args.dataset, args.norm, args.targeted,
+        #                                                         model, args.fig_type, file_path, x_label,y_label)
         # elif args.fig_type == "query_hist":
         #     target_str = "/untargeted" if not args.targeted else "targeted"
         #     os.makedirs(dump_folder, exist_ok=True)

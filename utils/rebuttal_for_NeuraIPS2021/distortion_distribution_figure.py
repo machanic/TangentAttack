@@ -138,7 +138,7 @@ def draw_query_distortion_figure(dataset, norm, targeted, arch, dump_folder_path
 
     colordict = {'G-TA':'r','TA':'b',"HSJA":'k'}
 
-    xtick = np.asarray(np.arange(1000)[::100].tolist() + [1000])
+    xtick = np.asarray(np.arange(1000)[::100].tolist() + [1000])  #  0,  100,  200,  300,  400,  500,  600,  700,  800,  900, 1000
     xtick_label = [x//100 for x in xtick]
     max_y = 0
     for query_budget, dist_dict in data_info.items():
@@ -149,8 +149,8 @@ def draw_query_distortion_figure(dataset, norm, targeted, arch, dump_folder_path
         for idx, ((dataset, norm, targeted, method), distortion_list) in enumerate(dist_dict.items()):
             color = colordict[method]
 
-            y = np.asarray(distortion_list[::50].tolist() + [distortion_list[-1].item()])
-            x = np.asarray(np.arange(len(distortion_list))[::50].tolist() + [1000])
+            y = np.asarray(distortion_list[::50].tolist())
+            x = np.asarray(np.arange(len(distortion_list))[::50].tolist())
             if np.max(y) > max_y:
                 max_y = np.max(y)
             line, = plt.plot(x, y, label=method,
