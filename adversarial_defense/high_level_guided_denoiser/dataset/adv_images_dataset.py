@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from config import IN_CHANNELS, IMAGE_SIZE, PY_ROOT
+from config import IN_CHANNELS, IMAGE_SIZE, PROJECT_PATH
 
 
 class AdvImagesDataset(Dataset):
@@ -18,7 +18,7 @@ class AdvImagesDataset(Dataset):
         """
         self.dataset = dataset
         self.num_channels = IN_CHANNELS[dataset]
-        self.data_root_dir = "{}/data_adv_defense/guided_denoiser".format(PY_ROOT)
+        self.data_root_dir = "{}/data_adv_defense/guided_denoiser".format(PROJECT_PATH)
         self.adv_images_path = "{}/{}_adv_images.npy".format(self.data_root_dir, dataset)
         self.clean_images_path = "{}/{}_clean_images.npy".format(self.data_root_dir, dataset)
         self.labels_path = "{}/{}_labels.npy".format(self.data_root_dir, dataset)

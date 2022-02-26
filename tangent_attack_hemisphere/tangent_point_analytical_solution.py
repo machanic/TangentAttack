@@ -1,5 +1,7 @@
 import torch
 import numpy as np
+import glog as log
+
 
 def calculate_projection_of_x_original(x_original, x_of_plane, normal_vector):
     t = torch.dot(x_of_plane-x_original, normal_vector) / torch.sum(torch.square(normal_vector))
@@ -59,6 +61,9 @@ class TangentFinder(object):
         numerator = self.ox - torch.dot(self.ox, self.u) * self.u / torch.norm(self.u) ** 2
         ok_prime = (numerator / torch.norm(numerator, p=self.ord)) * self.R * self.cos_gamma()
         ok = ok_prime + self.get_height_of_K() * self.u / torch.norm(self.u)
+        # log.info("[hemisphere] x_k is {:.4f} z_k is {:.4f}".format(self.R * self.cos_gamma(), self.get_height_of_K()))
+        # assert self.R * self.cos_gamma() > 0, "cos(gamma) < 0! it equals to {}".format( self.R * self.cos_gamma())
+        # assert self.get_height_of_K()  > 0, "h < 0! it equals to {}".format(self.get_height_of_K())
         # print("x_k is {}, z_k is {} in ball".format(self.R * self.cos_gamma(), self.get_height_of_K()))
         return ok + self.o
 

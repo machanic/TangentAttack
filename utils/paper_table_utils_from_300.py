@@ -1429,14 +1429,14 @@ def draw_tables_for_ImageNet_untargeted(archs_result):
     )
     )
 if __name__ == "__main__":
-    dataset = "CIFAR-10"
-    norm = "linf"
+    dataset = "ImageNet"
+    norm = "l2"
     targeted = True
     if "CIFAR" in dataset:
         archs = ['pyramidnet272',"gdas","WRN-28-10-drop", "WRN-40-10-drop"]
     else:
         archs = ["resnext101_64x4d","inceptionv4","senet154","resnet101","inceptionv3"]
-    query_budgets = [300,500, 1000,2000,5000,10000]
+    query_budgets = [300, 1000,2000,5000,8000,10000]
     # if targeted:
     #     query_budgets.extend([12000,15000,18000,20000])
     if "CIFAR" in dataset:

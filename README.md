@@ -91,9 +91,12 @@ You can just type `pip install -r requirements.txt` to install packages.
 In summary, there are three extra folders that can be downloaded, i.e., `attacked_images`, `train_pytorch_model`, and optionally `logs`.
 
 The `attacked_images` can be downloaded from [https://drive.google.com/file/d/1NkfMPShB9dUuugyFr2T8KTKM4kdwfKC2/view?usp=sharing](https://drive.google.com/file/d/1NkfMPShB9dUuugyFr2T8KTKM4kdwfKC2/view?usp=sharing).
+Besides, the targeted attack requires a randomly selected image of the target class in the validation set, and the validation set of the ImageNet dataset can be downloaded from [https://drive.google.com/file/d/1sE1i25mXApKuBChdhSqLbcFUEXTYYF9H/view?usp=sharing](https://drive.google.com/file/d/1sE1i25mXApKuBChdhSqLbcFUEXTYYF9H/view?usp=sharing).
 
 The pre-trained weights of the target models can be downloaded from [https://drive.google.com/file/d/1VfCdU14nAhOvumXTIA-B8OC6XwGYvUml/view?usp=sharing](https://drive.google.com/file/d/1VfCdU14nAhOvumXTIA-B8OC6XwGYvUml/view?usp=sharing).
 
 Before running experiments, please download above files and uncompress them to this project's root path.
 
-Also, I have uploaded the compressed zip format files for logs and results onto [https://drive.google.com/file/d/1vng1Gs6YgZs3PGMvfJb-exRRIsrbo5vx/view?usp=sharing](https://drive.google.com/file/d/1vng1Gs6YgZs3PGMvfJb-exRRIsrbo5vx/view?usp=sharing).
+Also, I have uploaded the compressed zip format file that contains logs and results onto [https://drive.google.com/file/d/1JswjvdDpaWMU7keGLA5HaVnZkYP3LpUO/view?usp=sharing](https://drive.google.com/file/d/1JswjvdDpaWMU7keGLA5HaVnZkYP3LpUO/view?usp=sharing).
+
+You can use these experimental results directly without spending a lot of time to re-run the experiments.

@@ -6,7 +6,7 @@ sys.path.append(os.getcwd())
 import torch
 import numpy as np
 import glog as log
-from config import PY_ROOT, MODELS_TRAIN_STANDARD, MODELS_TEST_STANDARD
+from config import PROJECT_PATH, MODELS_TRAIN_STANDARD, MODELS_TEST_STANDARD
 from dataset.dataset_loader_maker import DataLoaderMaker
 from models.standard_model import StandardModel, MetaLearnerModelBuilder
 from torch.nn import functional as F
@@ -89,7 +89,7 @@ def load_models(dataset):
     if dataset == "CIFAR-10" or dataset == "CIFAR-100":
         for arch in MODELS_TEST_STANDARD[dataset]:
             test_model_path = "{}/train_pytorch_model/real_image_model/{}-pretrained/{}/checkpoint.pth.tar".format(
-                PY_ROOT, dataset, arch)
+                PROJECT_PATH, dataset, arch)
             if os.path.exists(test_model_path):
                 archs.append(arch)
                 model_path_list.append(test_model_path)
@@ -99,7 +99,7 @@ def load_models(dataset):
         # for arch in ["vgg11_bn","resnet18","vgg16_bn","resnext64_4","densenet121"]:
         for arch in list(set(MODELS_TEST_STANDARD[dataset] + MODELS_TRAIN_STANDARD[dataset])):
             test_model_path = "{}/train_pytorch_model/real_image_model/{}@{}@*.pth.tar".format(
-                PY_ROOT, dataset, arch)
+                PROJECT_PATH, dataset, arch)
             test_model_path = list(glob.glob(test_model_path))[0]
             if os.path.exists(test_model_path):
                 archs.append(arch)
@@ -110,7 +110,7 @@ def load_models(dataset):
         log.info("begin check arch")
         for arch in list(set(MODELS_TEST_STANDARD[dataset] + MODELS_TRAIN_STANDARD[dataset])):
             test_model_list_path = "{}/train_pytorch_model/real_image_model/{}-pretrained/checkpoints/{}*.pth".format(
-                PY_ROOT, dataset, arch)
+                PROJECT_PATH, dataset, arch)
             test_model_path = list(glob.glob(test_model_list_path))
             if len(test_model_path) == 0:  # this arch does not exists in args.dataset
                 continue
@@ -151,7 +151,7 @@ if __name__ == "__main__":
     dataset = args.dataset
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
-    save_path = "{}/attacked_images/{}/{}_images_for_candidate_patch.npz".format(PY_ROOT, dataset, dataset)
+    save_path = "{}/attacked_images/{}/{}_images_for_candidate_patch.npz".format(PROJECT_PATH, dataset, dataset)
     os.makedirs(os.path.dirname(save_path), exist_ok=True)
     set_log_file(os.path.dirname(save_path)+"/generate_{}.log".format(dataset))
     models = load_models(dataset)

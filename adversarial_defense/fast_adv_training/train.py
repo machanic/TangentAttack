@@ -9,7 +9,7 @@ import time
 sys.path.append("/home1/machen/meta_perturbations_black_box_attack")
 import torch.nn as nn
 
-from config import PY_ROOT
+from config import PROJECT_PATH
 
 sys.path.append('../cifar10-fast/')
 from adversarial_defense.fast_adv_training.utils import *
@@ -95,7 +95,7 @@ def main():
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     logger.info(args)
     model_path = '{}/train_pytorch_model/adversarial_train/fast_adv_train/{}@{}@epoch_{}.pth.tar'.format(
-        PY_ROOT, args.dataset, args.arch, args.epochs)
+        PROJECT_PATH, args.dataset, args.arch, args.epochs)
     out_dir = os.path.dirname(model_path)
     os.makedirs(out_dir, exist_ok=True)
     np.random.seed(args.seed)

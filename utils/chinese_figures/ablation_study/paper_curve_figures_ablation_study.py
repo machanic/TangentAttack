@@ -299,9 +299,9 @@ def draw_random_HSJA_TangentAttack_query_distortion_figure(dataset, norm, target
 
 
     plt.figure(figsize=(15, 15))
-    colors = ['b', 'g', 'c', 'y', 'k', 'peru', "gold"]
-    markers = ['o', '>', '*', 's', "X", "h"]
-    linestyles = ["solid", "dashed", "densely dotted", "dashdotdotted", "densely dashed", "densely dashdotdotted"]
+    colors = ['g', 'b', 'c', 'y', 'k', 'peru', "gold"]
+    markers = ['>', 'o', '*', 's', "X", "h"]
+    linestyles = ["dashed", "solid", "densely dotted", "dashdotdotted", "densely dashed", "densely dashdotdotted"]
 
     # max_x = 0
     # min_x = 0
@@ -392,12 +392,12 @@ if __name__ == "__main__":
         elif args.fig_type == "median_distortion":
             y_label = "$\ell_2$范数失真度的中位数"
 
-        file_path = dump_folder + "/initial_batch_size/{dataset}_{model}_{norm}_{target_str}_attack.pdf".format(
-            dataset=args.dataset,
-            model=model, norm=args.norm,
-            target_str="untargeted" if not args.targeted else "targeted")
-        os.makedirs(os.path.dirname(file_path),exist_ok=True)
-        draw_query_distortion_figure(args.dataset, args.norm, args.targeted, model, args.fig_type, file_path,x_label,y_label)
+        # file_path = dump_folder + "/initial_batch_size/{dataset}_{model}_{norm}_{target_str}_attack.pdf".format(
+        #     dataset=args.dataset,
+        #     model=model, norm=args.norm,
+        #     target_str="untargeted" if not args.targeted else "targeted")
+        # os.makedirs(os.path.dirname(file_path),exist_ok=True)
+        # draw_query_distortion_figure(args.dataset, args.norm, args.targeted, model, args.fig_type, file_path,x_label,y_label)
 
         file_path = dump_folder + "/jump_direction/{dataset}_{model}_{norm}_{target_str}_attack.pdf".format(
             dataset=args.dataset,

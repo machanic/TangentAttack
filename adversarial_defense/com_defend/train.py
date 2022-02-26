@@ -7,7 +7,7 @@ from advertorch.attacks import LinfPGDAttack
 
 from adversarial_defense.com_defend.compression_network import ComDefend
 
-from config import PY_ROOT
+from config import PROJECT_PATH
 import argparse
 import os
 import time
@@ -94,7 +94,7 @@ def main():
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     cudnn.deterministic = True
     model_path = '{}/train_pytorch_model/adversarial_train/com_defend/{}@{}@epoch_{}@batch_{}.pth.tar'.format(
-        PY_ROOT, args.dataset, args.arch, args.n_epoch, args.batch_size)
+        PROJECT_PATH, args.dataset, args.arch, args.n_epoch, args.batch_size)
     os.makedirs(os.path.dirname(model_path), exist_ok=True)
     set_log_file(os.path.dirname(model_path) + "/train_{}.log".format(args.dataset))
     log.info('Command line is: {}'.format(' '.join(sys.argv)))

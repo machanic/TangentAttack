@@ -3196,7 +3196,7 @@ def draw_tables_for_ImageNet_untargeted(archs_result):
     )
     )
 if __name__ == "__main__":
-    dataset = "CIFAR-10"
+    dataset = "ImageNet"
     norm = "linf"
     if "CIFAR" in dataset:
         archs = ['pyramidnet272',"gdas","WRN-28-10-drop", "WRN-40-10-drop"]

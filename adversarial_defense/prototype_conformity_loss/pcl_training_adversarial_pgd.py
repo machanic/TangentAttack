@@ -12,7 +12,7 @@ import torch.nn as nn
 from adversarial_defense.prototype_conformity_loss.contrastive_proximity import Con_Proximity
 from adversarial_defense.prototype_conformity_loss.proximity import Proximity
 from adversarial_defense.prototype_conformity_loss.utils import AverageMeter
-from config import PY_ROOT, CLASS_NUM
+from config import PROJECT_PATH, CLASS_NUM
 from dataset.dataset_loader_maker import DataLoaderMaker
 from adversarial_defense.model.feature_defense_model import FeatureDefenseModel
 
@@ -133,7 +133,7 @@ def main():
     model = FeatureDefenseModel(args.dataset, args.arch, no_grad=False)
     model = model.cuda()
     model_path = '{}/train_pytorch_model/adversarial_train/pl_loss/pcl_pgd_adv_train_{}@{}.pth.tar'.format(
-        PY_ROOT, args.dataset, args.arch)
+        PROJECT_PATH, args.dataset, args.arch)
 
     set_log_file(os.path.dirname(model_path) + "/adv_train_{}_{}.log".format(args.dataset, args.arch))
     log.info('Command line is: {}'.format(' '.join(sys.argv)))
@@ -160,7 +160,7 @@ def main():
     optimizer_conprox_256 = torch.optim.SGD(criterion_conprox_256.parameters(), lr=args.lr_conprox)
 
     softmax_model_path = '{}/train_pytorch_model/adversarial_train/pl_loss/benign_image_{}@{}.pth.tar'.format(
-        PY_ROOT, args.dataset, args.arch)
+        PROJECT_PATH, args.dataset, args.arch)
     assert os.path.exists(softmax_model_path), "{} does not exist!".format(softmax_model_path)
     state_dict = torch.load(softmax_model_path, map_location=lambda storage, location: storage)
     model.cnn.load_state_dict(state_dict["state_dict"])

@@ -27,15 +27,19 @@ def new_round(_float, _len):
         return (round(_float, _len))
 
 
-method_name_to_paper = {"tangent_attack":"Tangent Attack",  "HSJA":"HopSkipJumpAttack",
-                        "SignOPT":"Sign-OPT", "SVMOPT":"SVM-OPT",
-                        "RayS": "RayS","GeoDA": "GeoDA"}
+method_name_to_paper = {"tangent_attack":"Tangent Attack(hemisphere)", "ellipsoid_tangent_attack":"Tangent Attack(semiellipsoid)", "HSJA":"HSJA",
+                        "SignOPT":"Sign-OPT", "SVMOPT":"SVM-OPT"}
+                        #"RayS": "RayS","GeoDA": "GeoDA"}
                         #"biased_boundary_attack": "Biased Boundary Attack"}
 
 def from_method_to_dir_path(dataset, method, norm, targeted):
     if method == "tangent_attack":
         path = "{method}_on_defensive_model-{dataset}-{norm}-{target_str}".format(method=method, dataset=dataset,
                                                                 norm=norm, target_str="untargeted" if not targeted else "targeted_increment")
+    if method == "ellipsoid_tangent_attack":
+        path = "{method}_on_defensive_model-{dataset}-{norm}-{target_str}".format(method=method, dataset=dataset,
+                                                                norm=norm, target_str="untargeted" if not targeted else "targeted_increment")
+
     elif method == "HSJA":
         path = "{method}_on_defensive_model-{dataset}-{norm}-{target_str}".format(method=method, dataset=dataset,
                                                                 norm=norm,  target_str="untargeted" if not targeted else "targeted_increment")
@@ -604,7 +608,7 @@ if __name__ == "__main__":
         archs = ['adv_train',"feature_distillation","feature_scatter", "jpeg", "TRADES"]
     else:
         archs = ["resnext101_64x4d","inceptionv4","senet154","resnet101","inceptionv3"]
-    query_budgets = [1000,2000,5000,8000,10000]
+    query_budgets = [300,1000,2000,5000,8000,10000]
     # if targeted:
     #     query_budgets.extend([12000,15000,18000,20000])
     if "CIFAR" in dataset:

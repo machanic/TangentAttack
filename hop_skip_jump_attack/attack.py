@@ -70,41 +70,48 @@ class HotSkipJumpAttack(object):
         self.distortion_with_max_queries_all = torch.zeros_like(self.query_all)
         self.random_direction = random_direction
 
-    def get_image_of_target_class(self,dataset_name, target_labels, target_model):
+    def get_image_of_target_class(self, dataset_name, target_labels, target_model):
 
         images = []
         for label in target_labels:  # length of target_labels is 1
             if dataset_name == "ImageNet":
-                dataset = ImageNetDataset(IMAGE_DATA_ROOT[dataset_name],label.item(), "validation")
-            elif dataset_name == "TinyImageNet":
-                dataset = TinyImageNetDataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
+                dataset = ImageNetDataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
             elif dataset_name == "CIFAR-10":
                 dataset = CIFAR10Dataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
-            elif dataset_name=="CIFAR-100":
+            elif dataset_name == "CIFAR-100":
                 dataset = CIFAR100Dataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
-
+            elif dataset_name == "TinyImageNet":
+                dataset = TinyImageNetDataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
             index = np.random.randint(0, len(dataset))
             image, true_label = dataset[index]
             image = image.unsqueeze(0)
             if dataset_name == "ImageNet" and target_model.input_size[-1] != 299:
                 image = F.interpolate(image,
-                                       size=(target_model.input_size[-2], target_model.input_size[-1]), mode='bilinear',
-                                       align_corners=False)
+                                      size=(target_model.input_size[-2], target_model.input_size[-1]), mode='bilinear',
+                                      align_corners=False)
             with torch.no_grad():
                 logits = target_model(image.cuda())
-            while logits.max(1)[1].item() != label.item():
+            max_recursive_loop_limit = 100
+            loop_count = 0
+            while logits.max(1)[1].item() != label.item() and loop_count < max_recursive_loop_limit:
+                loop_count += 1
                 index = np.random.randint(0, len(dataset))
                 image, true_label = dataset[index]
                 image = image.unsqueeze(0)
                 if dataset_name == "ImageNet" and target_model.input_size[-1] != 299:
                     image = F.interpolate(image,
-                                       size=(target_model.input_size[-2], target_model.input_size[-1]), mode='bilinear',
-                                       align_corners=False)
+                                          size=(target_model.input_size[-2], target_model.input_size[-1]), mode='bilinear',
+                                          align_corners=False)
                 with torch.no_grad():
                     logits = target_model(image.cuda())
+
+            if loop_count == max_recursive_loop_limit:
+                # The program cannot find a valid image from the validation set.
+                return None
+
             assert true_label == label.item()
             images.append(torch.squeeze(image))
-        return torch.stack(images) # B,C,H,W
+        return torch.stack(images)  # B,C,H,W
 
     def decision_function(self, images, true_labels, target_labels):
         images = torch.clamp(images, min=self.clip_min, max=self.clip_max).cuda()
@@ -447,6 +454,9 @@ class HotSkipJumpAttack(object):
                     raise NotImplementedError('Unknown target_type: {}'.format(args.target_type))
 
                 target_images = self.get_image_of_target_class(self.dataset_name,target_labels, self.model)
+                if target_images is None:
+                    log.info("{}-th image cannot get a valid target class image to initialize!".format(batch_index+1))
+                    continue
             else:
                 target_labels = None
                 target_images = None
@@ -608,7 +618,7 @@ if __name__ == "__main__":
         # if args.dataset == "CIFAR-10" or args.dataset == "CIFAR-100":
         #     for arch in MODELS_TEST_STANDARD[args.dataset]:
         #         test_model_path = "{}/train_pytorch_model/real_image_model/{}-pretrained/{}/checkpoint.pth.tar".format(
-        #             PY_ROOT,
+        #             PROJECT_PATH,
         #             args.dataset, arch)
         #         if os.path.exists(test_model_path):
         #             archs.append(arch)
@@ -617,14 +627,14 @@ if __name__ == "__main__":
         # elif args.dataset == "TinyImageNet":
         #     for arch in MODELS_TEST_STANDARD[args.dataset]:
         #         test_model_list_path = "{root}/train_pytorch_model/real_image_model/{dataset}@{arch}*.pth.tar".format(
-        #             root=PY_ROOT, dataset=args.dataset, arch=arch)
+        #             root=PROJECT_PATH, dataset=args.dataset, arch=arch)
         #         test_model_path = list(glob.glob(test_model_list_path))
         #         if test_model_path and os.path.exists(test_model_path[0]):
         #             archs.append(arch)
         # else:
         #     for arch in MODELS_TEST_STANDARD[args.dataset]:
         #         test_model_list_path = "{}/train_pytorch_model/real_image_model/{}-pretrained/checkpoints/{}*.pth".format(
-        #             PY_ROOT,
+        #             PROJECT_PATH,
         #             args.dataset, arch)
         #         test_model_list_path = list(glob.glob(test_model_list_path))
         #         if len(test_model_list_path) == 0:  # this arch does not exists in args.dataset

@@ -20,7 +20,7 @@ import numpy as np
 import torch
 import os
 import os.path as osp
-from config import CLASS_NUM, MODELS_TEST_STANDARD, IN_CHANNELS, PY_ROOT, IMAGE_DATA_ROOT
+from config import CLASS_NUM, MODELS_TEST_STANDARD, IN_CHANNELS, PROJECT_PATH, IMAGE_DATA_ROOT
 from dataset.dataset_loader_maker import DataLoaderMaker
 from models.defensive_model import DefensiveModel
 from models.standard_model import StandardModel
@@ -409,7 +409,7 @@ class GeoDA(object):
 
 
     def initialize_sub_basis(self, sub_dim):
-        sub_basis = generate_2d_dct_basis(PY_ROOT, self.height,sub_dim).astype(np.float32)
+        sub_basis = generate_2d_dct_basis(PROJECT_PATH, self.height,sub_dim).astype(np.float32)
         estimate_batch = self.grad_estimator_batch_size
         sub_basis_torch = torch.from_numpy(sub_basis).cuda()
         # EstNoise = SubNoise(estimate_batch, sub_basis_torch, self.channels, self.height, self.width)

@@ -9,7 +9,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import  transforms
 
-from config import PY_ROOT
+from config import PROJECT_PATH
 from models.standard_model import StandardModel
 import math
 from adversarial_defense.TRADES.trades import trades_loss
@@ -162,7 +162,7 @@ def main():
     device = torch.device("cuda")
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
     model_path = '{}/train_pytorch_model/adversarial_train/TRADES/{}@{}@norm_{}@epoch_{}@batch_{}.pth.tar'.format(
-        PY_ROOT, args.dataset, args.arch, args.norm, args.epochs, args.batch_size)
+        PROJECT_PATH, args.dataset, args.arch, args.norm, args.epochs, args.batch_size)
     os.makedirs(os.path.dirname(model_path), exist_ok=True)
     print("After trained, the model will save to {}".format(model_path))
     start_epoch = 1

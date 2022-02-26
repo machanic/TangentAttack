@@ -17,7 +17,7 @@ import torch
 import utils
 from adversarial_defense.feature_scatter.attack_methods import Attack_FeaScatter
 from adversarial_defense.feature_scatter.utils import softCrossEntropy
-from config import PY_ROOT, CLASS_NUM
+from config import PROJECT_PATH, CLASS_NUM
 from dataset.dataset_loader_maker import DataLoaderMaker
 from dataset.standard_model import StandardModel
 
@@ -115,7 +115,7 @@ if args.dataset == 'TinyImageNet':
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 start_epoch = 0
 model_path = '{}/train_pytorch_model/adversarial_train/feature_scatter/{}@{}@epoch_{}@batch_{}.pth.tar'.format(
-        PY_ROOT, args.dataset, args.arch, args.max_epoch, args.batch_size_train)
+        PROJECT_PATH, args.dataset, args.arch, args.max_epoch, args.batch_size_train)
 print("model will be saved to {}".format(model_path))
 os.makedirs(os.path.dirname(model_path),exist_ok=True)
 # Data

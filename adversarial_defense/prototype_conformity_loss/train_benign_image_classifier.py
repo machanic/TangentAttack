@@ -21,7 +21,7 @@ import torchvision.datasets as datasets
 import numpy as np
 
 from adversarial_defense.model.pcl_resnet import PrototypeConformityLossResNet
-from config import IMAGE_SIZE, IN_CHANNELS, CLASS_NUM, PY_ROOT
+from config import IMAGE_SIZE, IN_CHANNELS, CLASS_NUM, PROJECT_PATH
 from dataset.tiny_imagenet import TinyImageNet
 from adversarial_defense.prototype_conformity_loss.utils import AverageMeter
 import glog as log
@@ -168,7 +168,7 @@ def main():
     global best_acc
     start_epoch = args.start_epoch  # start from epoch 0 or last checkpoint epoch
     args.checkpoint = '{}/train_pytorch_model/adversarial_train/pl_loss/benign_image_{}@{}.pth.tar'.format(
-        PY_ROOT, args.dataset, args.arch)
+        PROJECT_PATH, args.dataset, args.arch)
     os.makedirs(os.path.dirname(args.checkpoint),exist_ok=True)
     in_channels = IN_CHANNELS[args.dataset]
     image_size = IMAGE_SIZE[args.dataset][0]

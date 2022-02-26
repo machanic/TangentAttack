@@ -40,25 +40,22 @@ class TangentFinder(object):
         x_2D = self.compute_2D_x()
         x0 = x_2D[0].item()
         z0 = x_2D[1].item()
-        in_sqrt = -L**2*S**2 + L**2*x0**2 + S**2*z0**2
+        in_sqrt = -L**2 * S**2 + L**2 * x0**2 + S**2 * z0**2
         if in_sqrt < 0:
             log.info("x_k inside sqrt < 0 ({:.7f})! convert to 0.".format(in_sqrt))
             in_sqrt = 0
-        if L**2*x0**2 + S**2*z0**2 < 1e-5:
-            raise ZeroDivisionError("The denominator is zero!")
-        # xk = S**2*(L**2 - z0*(L**2*S**2*z0/(L**2*x0**2 + S**2*z0**2) - L**2*x0*math.sqrt(in_sqrt)/(L**2*x0**2 + S**2*z0**2)))/(L**2*x0)
-        # zk = L**2*S**2*z0/(L**2*x0**2 + S**2*z0**2) - L**2*x0*math.sqrt(in_sqrt)/(L**2*x0**2 + S**2*z0**2)
-        # the below is orig
+        # if L**2*x0**2 + S**2*z0**2 < 1e-5:
+        #     raise ZeroDivisionError("The denominator is zero!")
+
+
+        # the below is another solution
         #xk = S**2 * (L**2 - z0 * (L**2 * S**2 * z0/ (L**2 * x0**2 + S**2  * z0 ** 2) - L**2 * x0 * math.sqrt(-L**2 * S**2 + L**2 * x0 ** 2 + S**2 * z0 ** 2)/(L**2 * x0**2 + S**2 * z0**2))) / (L**2 * x0)
         #zk = (L**2 * S**2 * z0)/(L**2 * x0 ** 2 + S**2 * z0**2) - (L**2 * x0 * math.sqrt(-L**2 * S**2 + L**2  * x0**2 + S**2 * z0**2))/(L**2 * x0 ** 2 + S**2 * z0**2)
-        xk = S**2 * (L**2 - z0 * (L**2 * S**2 * z0/ (L**2 * x0**2 + S**2 * z0**2) + L**2 * x0 * math.sqrt(-L**2 * S**2 + L**2 * x0 ** 2 + S**2 * z0 ** 2)/(L**2 * x0**2 + S**2 * z0**2))) / (L**2 * x0)
-        zk = (L**2 * S**2 * z0)/(L**2 * x0 ** 2 + S**2 * z0**2) + (L**2 * x0 * math.sqrt(-L**2 * S**2 + L**2  * x0**2 + S**2 * z0**2))/(L**2 * x0 ** 2 + S**2 * z0**2)
 
-        # result.append((xk,zk))
-        # xk2 = S**2*(L**2 - z0*(L**2*S**2*z0/(L**2*x0**2 + S**2*z0**2) + L**2*x0*math.sqrt(-L**2*S**2 + L**2*x0**2 + S**2*z0**2)/(L**2*x0**2 + S**2*z0**2)))/(L**2*x0)
-        # zk2 = L**2*S**2*z0/(L**2*x0**2 + S**2*z0**2) + L**2*x0*math.sqrt(-L**2*S**2 + L**2*x0**2 + S**2*z0**2)/(L**2*x0**2 + S**2*z0**2)
-        # result.append((xk2, zk2))
-        # assert zk > 0, zk
+        # Below is NIPS version!
+        xk = S**2 * (L**2 - z0 * (L**2 * S**2 * z0/ (L**2 * x0**2 + S**2 * z0**2) + L**2 * x0 * math.sqrt(in_sqrt)/(L**2 * x0**2 + S**2 * z0**2))) / (L**2 * x0)
+        zk = (L**2 * S**2 * z0)/(L**2 * x0 ** 2 + S**2 * z0**2) + (L**2 * x0 * math.sqrt(in_sqrt))/(L**2 * x0 ** 2 + S**2 * z0**2)
+
         return xk, zk
 
     def theta(self):
@@ -68,8 +65,8 @@ class TangentFinder(object):
         x_k, z_k = self.compute_tangent_point_of_ellipse()
         numerator = self.ox - torch.dot(self.ox, self.u) * self.u / torch.norm(self.u) ** 2
         ok_prime = (numerator / torch.norm(numerator, p=self.ord)) * math.fabs(x_k)
+        # log.info("[ellipsoid] x_k is {:.4f} z_k is {:.4f}".format(x_k, z_k))
         ok = ok_prime + z_k * self.u # / torch.norm(self.u)
-        # print("x_k is {}, z_k is {} in ell".format(math.fabs(x_k), z_k))
         return ok + self.o
 
 

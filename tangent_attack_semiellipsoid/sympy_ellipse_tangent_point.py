@@ -14,9 +14,9 @@ result = solve(equations,Xk,Zk,dict=True)
 print(result)
 
 
-L,S = symbols("L S",positive=True,real=True)
-alpha_0,beta_0 = symbols("alpha_0 beta_0",real = True)
-alpha_1,beta_1 = symbols("alpha_1 beta_1",real = True)
-equations = [L**2 * alpha_1**2 + S**2 * beta_1 ** 2 - alpha_0 * L**2 * alpha_1 - beta_0 * S**2 * beta_1,
-             alpha_1**2/(S**2) + beta_1**2 /(L**2) - 1]
-result_2 = solve(equations,alpha_1,beta_1,dict=True)
+# L,S = symbols("L S",positive=True,real=True)
+# alpha_0,beta_0 = symbols("alpha_0 beta_0",real = True)
+# alpha_1,beta_1 = symbols("alpha_1 beta_1",real = True)
+# equations = [L**2 * alpha_1**2 + S**2 * beta_1 ** 2 - alpha_0 * L**2 * alpha_1 - beta_0 * S**2 * beta_1,
+#              alpha_1**2/(S**2) + beta_1**2 /(L**2) - 1]
+# result_2 = solve(equations,alpha_1,beta_1,dict=True)

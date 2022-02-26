@@ -17,7 +17,7 @@ from adversarial_defense.high_level_guided_denoiser.dataset.adv_images_dataset i
 from adversarial_defense.model.guided_denoiser_network import Net
 from adversarial_defense.model.resnet_return_feature import ResNet
 from adversarial_defense.model.wrn_return_feature import WideResNet
-from config import IMAGE_SIZE, PY_ROOT, CLASS_NUM, IN_CHANNELS
+from config import IMAGE_SIZE, PROJECT_PATH, CLASS_NUM, IN_CHANNELS
 
 
 def set_log_file(fname):
@@ -202,7 +202,7 @@ def main():
                                               num_workers=0)
     if args.dataset.startswith("CIFAR"):
         pretrained_model_path = "{root}/train_pytorch_model/real_image_model/{dataset}-pretrained/{arch}/checkpoint.pth.tar".format(
-            root=PY_ROOT, dataset=args.dataset, arch=args.arch)
+            root=PROJECT_PATH, dataset=args.dataset, arch=args.arch)
         assert os.path.exists(pretrained_model_path), "{} does not exist!".format(pretrained_model_path)
         if args.arch == "resnet-50":
             classifier = ResNet(50, CLASS_NUM[args.dataset], block_name='BasicBlock')
@@ -217,7 +217,7 @@ def main():
 
     elif args.dataset == "TinyImageNet":
         pretrained_model_path = "{root}/train_pytorch_model/real_image_model/{dataset}@{arch}@*.pth.tar".format(
-            root=PY_ROOT, dataset=args.dataset, arch=args.arch)
+            root=PROJECT_PATH, dataset=args.dataset, arch=args.arch)
         pretrained_model_path = list(glob.glob(pretrained_model_path))
         assert len(pretrained_model_path) > 0, "{} does not exist!".format(pretrained_model_path)
         pretrained_model_path = pretrained_model_path[0]
@@ -240,7 +240,7 @@ def main():
     log.info("Loaded pretrained {} from {}".format(args.arch, pretrained_model_path))
     net = Net(classifier, args.dataset, IMAGE_SIZE[args.dataset][0], IN_CHANNELS[args.dataset], 1, 0, False)
     net.cuda()
-    save_dir = "{}/train_pytorch_model/adversarial_train/guided_denoiser".format(PY_ROOT)
+    save_dir = "{}/train_pytorch_model/adversarial_train/guided_denoiser".format(PROJECT_PATH)
     os.makedirs(save_dir, exist_ok=True)
     set_log_file(save_dir+"/train_{}_{}.log".format(args.dataset,args.arch))
     model_path = "{}/guided_denoiser_{}_{}_{}.pth.tar".format(save_dir, args.dataset, args.arch, args.GD)

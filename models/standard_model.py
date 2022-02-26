@@ -12,7 +12,7 @@ from cifar_models_myself import Conv3, DenseNet121, DenseNet169, DenseNet201, Go
     PreActResNet18, PreActResNet34, PreActResNet50, PreActResNet101, PreActResNet152, wideresnet28, wideresnet34, \
     wideresnet40, carlinet, wideresnet28drop, wideresnet34drop, wideresnet40drop
 from cifar_models_myself.miscellaneous import Identity
-from config import pretrained_cifar_model_conf, IN_CHANNELS, IMAGE_SIZE, CLASS_NUM, PY_ROOT
+from config import pretrained_cifar_model_conf, IN_CHANNELS, IMAGE_SIZE, CLASS_NUM, PROJECT_PATH
 from cifar_models_myself.efficient_densenet import EfficientDenseNet
 from tiny_imagenet_models.densenet import densenet161, densenet121, densenet169, densenet201
 from tiny_imagenet_models.resnext import resnext101_32x4d, resnext101_64x4d
@@ -33,16 +33,16 @@ class StandardModel(nn.Module):
         self.dataset = dataset
 
         if dataset.startswith("CIFAR"):
-            trained_model_path = "{root}/train_pytorch_model/real_image_model/{dataset}-pretrained/{arch}/checkpoint.pth.tar".format(root=PY_ROOT, dataset=dataset, arch=arch)
+            trained_model_path = "{root}/train_pytorch_model/real_image_model/{dataset}-pretrained/{arch}/checkpoint.pth.tar".format(root=PROJECT_PATH, dataset=dataset, arch=arch)
             assert os.path.exists(trained_model_path), "{} does not exist!".format(trained_model_path)
         elif dataset == "TinyImageNet":
-            trained_model_path = "{root}/train_pytorch_model/real_image_model/{dataset}@{arch}@*.pth.tar".format(root=PY_ROOT, dataset=dataset, arch=arch)
+            trained_model_path = "{root}/train_pytorch_model/real_image_model/{dataset}@{arch}@*.pth.tar".format(root=PROJECT_PATH, dataset=dataset, arch=arch)
             trained_model_path_list = list(glob.glob(trained_model_path))
             assert len(trained_model_path_list)>0, "{} does not exist!".format(trained_model_path)
             trained_model_path = trained_model_path_list[0]
         else:
             trained_model_path = "{root}/train_pytorch_model/real_image_model/{dataset}-pretrained/hub/checkpoints/{arch}*.pth".format(
-                root=PY_ROOT, dataset=dataset, arch=arch)
+                root=PROJECT_PATH, dataset=dataset, arch=arch)
             trained_model_path_ls = list(glob.glob(trained_model_path))
             assert trained_model_path_ls,  "{} does not exist!".format(trained_model_path)
             trained_model_path = trained_model_path_ls[0]
@@ -70,12 +70,12 @@ class StandardModel(nn.Module):
             return arch in pretrainedmodels.__dict__
         elif dataset == "TinyImageNet":
             trained_model_path = "{root}/train_pytorch_model/real_image_model/{dataset}@{arch}@*.pth.tar".format(
-                root=PY_ROOT, dataset=dataset, arch=arch)
+                root=PROJECT_PATH, dataset=dataset, arch=arch)
             trained_model_path_list = list(glob.glob(trained_model_path))
             return len(trained_model_path_list) > 0
         else:
             trained_model_path = "{root}/train_pytorch_model/real_image_model/{dataset}-pretrained/{arch}*".format(
-                root=PY_ROOT, dataset=dataset, arch=arch)
+                root=PROJECT_PATH, dataset=dataset, arch=arch)
             trained_model_path = glob.glob(trained_model_path)
             if len(trained_model_path) > 0:
                 return os.path.exists(trained_model_path[0] + "/checkpoint.pth.tar")
@@ -138,17 +138,17 @@ class StandardModel(nn.Module):
     #             raise NotImplementedError('Unknown epoch {} for train data {}'.format(
     #                 ref_arch_epoch, ref_arch_train_data))
     #     elif ref_arch_train_data in ["CIFAR-10","CIFAR-100"]:
-    #         return  "{root}/train_pytorch_model/real_image_model/{dataset}-pretrained/{arch}/checkpoint.pth.tar".format(root=PY_ROOT,
+    #         return  "{root}/train_pytorch_model/real_image_model/{dataset}-pretrained/{arch}/checkpoint.pth.tar".format(root=PROJECT_PATH,
     #                                                                                     dataset=self.dataset, arch=ref_arch)
     #     elif ref_arch_train_data == "ImageNet":
     #         trained_model_path = "{root}/train_pytorch_model/real_image_model/{dataset}-pretrained/checkpoints/{arch}*.pth".format(
-    #             root=PY_ROOT, dataset=self.dataset, arch=ref_arch)
+    #             root=PROJECT_PATH, dataset=self.dataset, arch=ref_arch)
     #         trained_model_path_ls = list(glob.glob(trained_model_path))
     #         assert trained_model_path_ls, "{} does not exist!".format(trained_model_path)
     #         return trained_model_path_ls[0]
     #     else:
     #         raise NotImplementedError('Unknown train data {}'.format(ref_arch_train_data))
-    #     model_path = osp.join(PY_ROOT, "train_pytorch_model", prefix, ref_arch, suffix)
+    #     model_path = osp.join(PROJECT_PATH, "train_pytorch_model", prefix, ref_arch, suffix)
     #     return model_path
 
     def construct_cifar_model(self, arch, dataset, in_channels, num_classes):
@@ -247,7 +247,7 @@ class StandardModel(nn.Module):
             if load_pretrained:
                 model.load_state_dict(torch.load(trained_model_path, map_location=lambda storage, location: storage)["state_dict"])
         elif dataset == 'ImageNet':
-            os.environ["TORCH_HOME"] = "{}/train_pytorch_model/real_image_model/ImageNet-pretrained".format(PY_ROOT)
+            os.environ["TORCH_HOME"] = "{}/train_pytorch_model/real_image_model/ImageNet-pretrained".format(PROJECT_PATH)
             if load_pretrained:
                 pretrained = "imagenet"
             else:
@@ -349,7 +349,7 @@ class MetaLearnerModelBuilder(object):
 
     @staticmethod
     def construct_imagenet_model(arch, dataset):
-        os.environ["TORCH_HOME"] = "{}/train_pytorch_model/real_image_model/ImageNet-pretrained".format(PY_ROOT)
+        os.environ["TORCH_HOME"] = "{}/train_pytorch_model/real_image_model/ImageNet-pretrained".format(PROJECT_PATH)
         if arch == 'efficient_densenet':
             depth = 40
             block_config = [(depth - 4) // 6 for _ in range(3)]

@@ -20,6 +20,8 @@ from models.defensive_model import DefensiveModel
 from dataset.target_class_dataset import ImageNetDataset,CIFAR100Dataset,CIFAR10Dataset,TinyImageNetDataset
 
 from tangent_attack_semiellipsoid.tangent_point_analytical_solution import TangentFinder as EllipsoidTangentFinder
+from tangent_attack_hemisphere.tangent_point_analytical_solution import TangentFinder as HemisphereTangentFinder
+
 
 class EllipsoidTangentAttack(object):
     def __init__(self, model, dataset, clip_min, clip_max, height, width, channels, norm, epsilon, radius_ratio,
@@ -95,7 +97,10 @@ class EllipsoidTangentAttack(object):
                                        align_corners=False)
             with torch.no_grad():
                 logits = self.model(image.cuda())
-            while logits.max(1)[1].item() != label.item():
+            max_recursive_loop_limit = 100
+            loop_count = 0
+            while logits.max(1)[1].item() != label.item() and loop_count < max_recursive_loop_limit:
+                loop_count += 1
                 index = np.random.randint(0, len(dataset))
                 image, true_label = dataset[index]
                 image = image.unsqueeze(0)
@@ -105,6 +110,10 @@ class EllipsoidTangentAttack(object):
                                        align_corners=False)
                 with torch.no_grad():
                     logits = self.model(image.cuda())
+
+            if loop_count == max_recursive_loop_limit:
+                return None
+
             assert true_label == label.item()
             images.append(torch.squeeze(image))
         return torch.stack(images) # B,C,H,W
@@ -318,6 +327,16 @@ class EllipsoidTangentAttack(object):
                                            norm="l2")
             tangent_point = tangent_finder.compute_tangent_point()
             tangent_point = tangent_point.view_as(x_original).type(x_original.dtype)
+
+            # # FIXME compare with the Tangent Attack(hemisphere version)
+            # tangent_finder_hemi = HemisphereTangentFinder(x_original.view(-1), x_boundary.view(-1), short_radius,
+            #                                         normal_vector.view(-1),
+            #                                         norm="l2")
+            # tangent_point = tangent_finder_hemi.compute_tangent_point()
+            # tangent_point_hemi = tangent_point.view_as(x_original).type(x_original.dtype)  # FIXME
+            # diff = (tangent_point_semi - tangent_point_hemi).max().item()
+            # log.info(diff) # FIXME compare the difference with the Tangent Attack(hemisphere version)
+            # tangent_point = tangent_point_semi
             success = self.decision_function(tangent_point[None], true_labels, target_labels)
             num_evals += 1
             if bool(success[0].item()):
@@ -453,8 +472,6 @@ class EllipsoidTangentAttack(object):
             loaded_target_labels = np.load("./target_class_labels/{}/label.npy".format(args.dataset))
             loaded_target_labels = torch.from_numpy(loaded_target_labels).long()
         for batch_index, (images, true_labels) in enumerate(self.dataset_loader):
-            # if batch_index+1 == 425 or batch_index+1 == 694:
-            #     continue
 
             if args.dataset == "ImageNet" and self.model.input_size[-1] != 299:
                 images = F.interpolate(images,
@@ -488,13 +505,15 @@ class EllipsoidTangentAttack(object):
                     raise NotImplementedError('Unknown target_type: {}'.format(args.target_type))
 
                 target_images = self.get_image_of_target_class(self.dataset_name,target_labels)
+                if target_images is None:
+                    log.info("{}-th image cannot get a valid target class image to initialize!".format(batch_index+1))
+                    continue
             else:
                 target_labels = None
                 target_images = None
-            try:
-                adv_images, query, success_query, distortion_with_max_queries, success_epsilon = self.attack(batch_index, images, target_images, true_labels, target_labels)
-            except ZeroDivisionError:
-                continue
+
+            adv_images, query, success_query, distortion_with_max_queries, success_epsilon = self.attack(batch_index, images, target_images, true_labels, target_labels)
+
             distortion_with_max_queries = distortion_with_max_queries.detach().cpu()
             with torch.no_grad():
                 if adv_images.dim() == 3:

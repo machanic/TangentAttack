@@ -18,7 +18,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import MultiStepLR
 
-from config import PY_ROOT, CLASS_NUM, IN_CHANNELS, IMAGE_SIZE, IMAGE_DATA_ROOT
+from config import PROJECT_PATH, CLASS_NUM, IN_CHANNELS, IMAGE_SIZE, IMAGE_DATA_ROOT
 from dataset.tiny_imagenet import TinyImageNet
 
 def parse_args():
@@ -123,9 +123,9 @@ def main():
     args = parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     gpus = [idx for idx, gpu in enumerate(args.gpu.split(","))]
-    work_dir = '{}/train_pytorch_model/adversarial_train/feature_denoise/'.format(PY_ROOT)
+    work_dir = '{}/train_pytorch_model/adversarial_train/feature_denoise/'.format(PROJECT_PATH)
     # pretrained_model_path = '{}/train_pytorch_model/adversarial_train/feature_denoise/{}@{}_{}_{}_{}.pth.tar'.format(
-    #     PY_ROOT, args.dataset, args.arch, denoise_str, args.filter_type, args.ksize)
+    #     PROJECT_PATH, args.dataset, args.arch, denoise_str, args.filter_type, args.ksize)
     assert os.path.exists(work_dir), "{} does not exist!".format(work_dir)
     os.makedirs(work_dir, exist_ok=True)
     set_log_file(work_dir + "/adv_train_{}.log".format(args.dataset))
@@ -133,9 +133,9 @@ def main():
     log.info('Called with args:')
     print_args(args)
     model_path = '{}/train_pytorch_model/adversarial_train/feature_denoise/pgd_adv_train_{}@{}_{}_{}.pth.tar'.format(
-        PY_ROOT, args.dataset, args.arch, args.filter_type, args.ksize)
+        PROJECT_PATH, args.dataset, args.arch, args.filter_type, args.ksize)
     best_model_path = '{}/train_pytorch_model/adversarial_train/feature_denoise/best_pgd_adv_train_{}@{}_{}_{}.pth.tar'.format(
-        PY_ROOT, args.dataset, args.arch, args.filter_type, args.ksize)
+        PROJECT_PATH, args.dataset, args.arch, args.filter_type, args.ksize)
 
     model = FeatureDefenseModel(args.dataset, args.arch, no_grad=False)
     model = model.cuda()

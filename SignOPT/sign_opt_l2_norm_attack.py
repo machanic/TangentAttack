@@ -426,40 +426,46 @@ class SignOptL2Norm(object):
         images = []
         for label in target_labels:  # length of target_labels is 1
             if dataset_name == "ImageNet":
-                dataset = ImageNetDataset(IMAGE_DATA_ROOT[dataset_name],label.item(), "validation")
-            elif dataset_name == "TinyImageNet":
-                dataset = TinyImageNetDataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
+                dataset = ImageNetDataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
             elif dataset_name == "CIFAR-10":
                 dataset = CIFAR10Dataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
-            elif dataset_name=="CIFAR-100":
+            elif dataset_name == "CIFAR-100":
                 dataset = CIFAR100Dataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
-
+            elif dataset_name == "TinyImageNet":
+                dataset = TinyImageNetDataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
             index = np.random.randint(0, len(dataset))
             image, true_label = dataset[index]
             image = image.unsqueeze(0)
             if dataset_name == "ImageNet" and target_model.input_size[-1] != 299:
                 image = F.interpolate(image,
-                                       size=(target_model.input_size[-2], target_model.input_size[-1]), mode='bilinear',
-                                       align_corners=False)
+                                      size=(target_model.input_size[-2], target_model.input_size[-1]), mode='bilinear',
+                                      align_corners=False)
             with torch.no_grad():
                 logits = target_model(image.cuda())
-            while logits.max(1)[1].item() != label.item():
+            max_recursive_loop_limit = 100
+            loop_count = 0
+            while logits.max(1)[1].item() != label.item() and loop_count < max_recursive_loop_limit:
+                loop_count += 1
                 index = np.random.randint(0, len(dataset))
                 image, true_label = dataset[index]
                 image = image.unsqueeze(0)
                 if dataset_name == "ImageNet" and target_model.input_size[-1] != 299:
                     image = F.interpolate(image,
-                                       size=(target_model.input_size[-2], target_model.input_size[-1]), mode='bilinear',
-                                       align_corners=False)
-                image = image.cuda()
+                                          size=(target_model.input_size[-2], target_model.input_size[-1]), mode='bilinear',
+                                          align_corners=False)
                 with torch.no_grad():
-                    logits = target_model(image)
+                    logits = target_model(image.cuda())
+
+            if loop_count == max_recursive_loop_limit:
+                # The program cannot find a valid image from the validation set.
+                return None
+
             assert true_label == label.item()
             images.append(torch.squeeze(image))
-        return torch.stack(images).cuda() # B,C,H,W
+        return torch.stack(images).cuda()  # B,C,H,W
 
 
-    def targeted_attack(self, image_index, images, target_labels):
+    def targeted_attack(self, image_index, images, target_labels, target_class_image):
         """ Attack the original image and return adversarial example
             model: (pytorch model)
             train_dataset: set of training data
@@ -516,7 +522,8 @@ class SignOptL2Norm(object):
                 if i > 100:
                     break
         else:
-            xi = self.get_image_of_target_class(self.dataset, target_labels, self.model)
+            # xi = self.get_image_of_target_class(self.dataset, target_labels, self.model)
+            xi = target_class_image
             theta = xi - images
             initial_lbd = torch.linalg.norm(theta)
             theta /= initial_lbd
@@ -668,7 +675,11 @@ class SignOptL2Norm(object):
             # return images + gg * xg, query,success_stop_queries, gg, gg <= self.epsilon, xg
             # adv, distortion, is_success, nqueries, theta_signopt
             if args.targeted:
-                adv_images, query, success_query, distortion_with_max_queries, success_epsilon, theta_signopt = self.targeted_attack(batch_index, images, target_labels)
+                target_class_image = self.get_image_of_target_class(self.dataset, target_labels, self.model)
+                if target_class_image is None:
+                    log.info("{}-th image cannot get a valid target class image to initialize!".format(batch_index + 1))
+                    continue
+                adv_images, query, success_query, distortion_with_max_queries, success_epsilon, theta_signopt = self.targeted_attack(batch_index, images, target_labels, target_class_image)
             else:
                 adv_images, query, success_query, distortion_with_max_queries, success_epsilon, theta_signopt = self.untargeted_attack(batch_index,
                                                                                                                     images,  true_labels)

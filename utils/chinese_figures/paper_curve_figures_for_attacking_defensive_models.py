@@ -159,7 +159,7 @@ def draw_query_distortion_figure(dataset, norm, targeted, arch, fig_type, dump_f
     #     methods = list(filter(lambda method_name:"RGF" not in method_name, methods))
     dataset_path_dict= get_all_exists_folder(dataset, methods, norm, targeted)
     max_query = 10000
-    if dataset=="ImageNet" and targeted:
+    if dataset=="ImageNet":
         max_query = 20000
     query_budgets = np.arange(1000, max_query+1, 1000)
     query_budgets = np.insert(query_budgets,0,500)
@@ -211,16 +211,13 @@ def draw_query_distortion_figure(dataset, norm, targeted, arch, fig_type, dump_f
     else:
         plt.gca().yaxis.set_major_formatter(StrMethodFormatter('{x:,.0f}'))
 
-    if dataset == "ImageNet" and targeted:
-        plt.xlim(0, max_query+1000)
-    else:
-        plt.xlim(0, max_query)
+    plt.xlim(0, max_query)
 
     plt.ylim(0, max_y+0.1)
     plt.gcf().subplots_adjust(bottom=0.15)
     print("max y is {}".format(max_y))
     # xtick = [0, 5000, 10000]
-    if dataset == "ImageNet" and targeted:
+    if dataset == "ImageNet":
         x_ticks = xtick[::2]
         x_ticks = x_ticks.tolist()
         x_ticks_label = ["{}K".format(x_tick // 1000) for x_tick in x_ticks]
@@ -255,7 +252,6 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Drawing Figures of Attacking Normal Models')
     parser.add_argument("--fig_type", type=str, choices=["mean_distortion",
                                                          "median_distortion"])
-    parser.add_argument("--dataset", type=str, required=True, help="the dataset to train")
     parser.add_argument("--norm", type=str, default="l2", choices=["l2", "linf"])
     parser.add_argument("--targeted", action="store_true", help="Does it train on the data of targeted attack?")
     args = parser.parse_args()
@@ -266,7 +262,6 @@ if __name__ == "__main__":
     args = parse_args()
     dump_folder = "/home1/machen/hard_label_attacks/paper_chinese_figures/defensive_models/{}/".format(args.fig_type)
     os.makedirs(dump_folder, exist_ok=True)
-
 
 
     for dataset in ["ImageNet","CIFAR-10"]:

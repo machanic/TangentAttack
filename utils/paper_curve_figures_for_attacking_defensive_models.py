@@ -161,7 +161,7 @@ def draw_query_distortion_figure(dataset, norm, targeted, arch, fig_type, dump_f
     #     methods = list(filter(lambda method_name:"RGF" not in method_name, methods))
     dataset_path_dict= get_all_exists_folder(dataset, methods, norm, targeted)
     max_query = 10000
-    if dataset=="ImageNet" and targeted:
+    if dataset=="ImageNet":
         max_query = 20000
     query_budgets = np.arange(1000, max_query+1, 1000)
     query_budgets = np.insert(query_budgets,0,500)
@@ -217,16 +217,13 @@ def draw_query_distortion_figure(dataset, norm, targeted, arch, fig_type, dump_f
     else:
         plt.gca().yaxis.set_major_formatter(StrMethodFormatter('{x:,.0f}'))
 
-    if dataset == "ImageNet" and targeted:
-        plt.xlim(0, max_query+1000)
-    else:
-        plt.xlim(0, max_query)
+    plt.xlim(0, max_query)
 
     plt.ylim(0, max_y+0.1)
     plt.gcf().subplots_adjust(bottom=0.15)
     print("max y is {}".format(max_y))
     # xtick = [0, 5000, 10000]
-    if dataset == "ImageNet" and targeted:
+    if dataset == "ImageNet":
         x_ticks = xtick[::2]
         x_ticks = x_ticks.tolist()
         x_ticks_label = ["{}K".format(x_tick // 1000) for x_tick in x_ticks]
@@ -270,22 +267,21 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
-    dump_folder = "/home1/machen/hard_label_attacks/paper_figures/defensive_models/{}/".format(args.fig_type)
+    dump_folder = "/home1/machen/hard_label_attacks/paper_figures/defense_models/{}/".format(args.fig_type)
     os.makedirs(dump_folder, exist_ok=True)
 
 
 
-    for dataset in ["ImageNet","CIFAR-10"]:
-        for targeted in [False, True]:
+    for dataset in ["ImageNet"]:
+        for targeted in [True]:
             if "CIFAR" in dataset:
                 # archs = ['resnet-50_TRADES']
                 archs = ['resnet-50_TRADES', "resnet-50_jpeg", "resnet-50_feature_scatter",
                          "resnet-50_feature_distillation", "resnet-50_com_defend", "resnet-50_adv_train"]
             else:
                 # archs = ["resnet50_adv_train_on_ImageNet_linf_4_div_255", "resnet50_adv_train_on_ImageNet_l2_3"]
-                archs = ["jpeg", "resnet50_adv_train_on_ImageNet_l2_3", "resnet50_adv_train_on_ImageNet_linf_4_div_255",
-                         "resnet50_adv_train_on_ImageNet_linf_8_div_255"]
-
+                # archs = ["jpeg", "resnet50_adv_train_on_ImageNet_l2_3", "resnet50_adv_train_on_ImageNet_linf_4_div_255",
+                archs= ["resnet50_adv_train_on_ImageNet_linf_4_div_255", "resnet50_adv_train_on_ImageNet_l2_3","resnet50_adv_train_on_ImageNet_linf_8_div_255","jpeg"]
             for model in archs:
                 file_path = dump_folder + "{dataset}_{model}_{norm}_{target_str}_attack.pdf".format(dataset=dataset,
                               model=model, norm=args.norm, target_str="untargeted" if not targeted else "targeted")

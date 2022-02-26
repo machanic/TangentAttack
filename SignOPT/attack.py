@@ -76,7 +76,7 @@ def get_parse_args():
     parser.add_argument('--json-config', type=str, default='./configures/SignOPT.json',
                         help='a configures file to be passed in instead of arguments')
     parser.add_argument('--norm', type=str, required=True, choices=["l2","linf"], help='Which lp constraint to run bandits [linf|l2]')
-    parser.add_argument('--est_grad_direction_num', type=int,default=100)
+    parser.add_argument('--est_grad_direction_num', type=int,default=200)
     parser.add_argument('--epsilon', type=float,
                         help='epsilon of the maximum perturbation in l_p norm attack')
     parser.add_argument('--verbose', action='store_true', default=False,

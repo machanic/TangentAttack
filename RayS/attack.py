@@ -14,7 +14,7 @@ import random
 import torch
 import glog as log
 from dataset.dataset_loader_maker import DataLoaderMaker
-from config import CLASS_NUM, MODELS_TEST_STANDARD, PY_ROOT, IN_CHANNELS, IMAGE_SIZE
+from config import CLASS_NUM, MODELS_TEST_STANDARD, PROJECT_PATH, IN_CHANNELS, IMAGE_SIZE
 import os.path as osp
 import os
 from models.standard_model import StandardModel
@@ -342,7 +342,7 @@ if __name__ == "__main__":
         if args.dataset == "CIFAR-10" or args.dataset == "CIFAR-100":
             for arch in MODELS_TEST_STANDARD[args.dataset]:
                 test_model_path = "{}/train_pytorch_model/real_image_model/{}-pretrained/{}/checkpoint.pth.tar".format(
-                    PY_ROOT,
+                    PROJECT_PATH,
                     args.dataset, arch)
                 if os.path.exists(test_model_path):
                     archs.append(arch)
@@ -351,14 +351,14 @@ if __name__ == "__main__":
         elif args.dataset == "TinyImageNet":
             for arch in MODELS_TEST_STANDARD[args.dataset]:
                 test_model_list_path = "{root}/train_pytorch_model/real_image_model/{dataset}@{arch}*.pth.tar".format(
-                    root=PY_ROOT, dataset=args.dataset, arch=arch)
+                    root=PROJECT_PATH, dataset=args.dataset, arch=arch)
                 test_model_path = list(glob.glob(test_model_list_path))
                 if test_model_path and os.path.exists(test_model_path[0]):
                     archs.append(arch)
         else:
             for arch in MODELS_TEST_STANDARD[args.dataset]:
                 test_model_list_path = "{}/train_pytorch_model/real_image_model/{}-pretrained/checkpoints/{}*.pth".format(
-                    PY_ROOT,
+                    PROJECT_PATH,
                     args.dataset, arch)
                 test_model_list_path = list(glob.glob(test_model_list_path))
                 if len(test_model_list_path) == 0:  # this arch does not exists in args.dataset

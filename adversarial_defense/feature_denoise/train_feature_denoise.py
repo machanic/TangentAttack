@@ -15,7 +15,7 @@ from torch.optim.lr_scheduler import MultiStepLR
 from dataset.tiny_imagenet import TinyImageNet
 
 from adversarial_defense.model.denoise_resnet import DenoiseResNet18, DenoiseResNet34, DenoiseResNet50, DenoiseResNet101, DenoiseResNet152
-from config import PY_ROOT, IN_CHANNELS, CLASS_NUM, IMAGE_SIZE, IMAGE_DATA_ROOT
+from config import PROJECT_PATH, IN_CHANNELS, CLASS_NUM, IMAGE_SIZE, IMAGE_DATA_ROOT
 
 
 def parse_args():
@@ -120,7 +120,7 @@ def main():
                        ksize=args.ksize)
     model = model.cuda()
     model_path = '{}/train_pytorch_model/adversarial_train/feature_denoise/{}@{}_{}_{}.pth.tar'.format(
-        PY_ROOT, args.dataset, args.arch, args.filter_type, args.ksize)
+        PROJECT_PATH, args.dataset, args.arch, args.filter_type, args.ksize)
     os.makedirs(os.path.dirname(model_path), exist_ok=True)
     set_log_file(os.path.dirname(model_path) + "/train_{}_{}.log".format(args.dataset, args.arch))
     log.info('Command line is: {}'.format(' '.join(sys.argv)))

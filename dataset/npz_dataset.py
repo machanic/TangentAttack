@@ -1,12 +1,12 @@
 from torch.utils import data
 import torch
 
-from config import PY_ROOT
+from config import PROJECT_PATH
 import numpy as np
 
 class NpzDataset(data.Dataset):
     def __init__(self, dataset):
-        file_path = "{}/attacked_images/{}/{}_images.npz".format(PY_ROOT, dataset, dataset)
+        file_path = "{}/attacked_images/{}/{}_images.npz".format(PROJECT_PATH, dataset, dataset)
         file_data = np.load(file_path)
         self.dataset = dataset
         self.images = file_data["images"]
@@ -24,7 +24,7 @@ class NpzDataset(data.Dataset):
 class NpzExtraDataset(NpzDataset):
     def __init__(self, dataset):
         super(NpzExtraDataset, self).__init__(dataset)
-        file_path = "{}/attacked_images/{}/{}_images_for_candidate.npz".format(PY_ROOT, dataset, dataset)
+        file_path = "{}/attacked_images/{}/{}_images_for_candidate.npz".format(PROJECT_PATH, dataset, dataset)
         file_data = np.load(file_path)
         self.dataset = dataset
         self.images = file_data["images"]

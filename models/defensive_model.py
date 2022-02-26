@@ -17,7 +17,7 @@ from adversarial_defense.model.denoise_resnet import DenoiseResNet50, DenoiseRes
 from adversarial_defense.model.guided_denoiser_network import Net
 from adversarial_defense.model.pcl_resnet import PrototypeConformityLossResNet
 from adversarial_defense.post_averaging.post_averaged_models import PostAveragedNetwork
-from config import pretrained_cifar_model_conf, IN_CHANNELS, IMAGE_SIZE, CLASS_NUM, PY_ROOT
+from config import pretrained_cifar_model_conf, IN_CHANNELS, IMAGE_SIZE, CLASS_NUM, PROJECT_PATH
 from models.tiny_imagenet_models.densenet import densenet161, densenet121, densenet169, densenet201
 from models.tiny_imagenet_models.inception import inception_v3
 from models.tiny_imagenet_models.resnext import resnext101_32x4d, resnext101_64x4d
@@ -49,16 +49,16 @@ class DefensiveModel(nn.Module):
         if defense_model != "feature_denoise" and defense_model != "pcl_loss" and defense_model!="pcl_loss_adv_train" \
                 and defense_model != "guided_denoiser" and defense_model != "TRADES" and defense_model!="adv_train" and defense_model!="adv_train_on_ImageNet":
             if dataset.startswith("CIFAR"):
-                trained_model_path = "{root}/train_pytorch_model/real_image_model/{dataset}-pretrained/{arch}/checkpoint.pth.tar".format(root=PY_ROOT, dataset=dataset, arch=arch)
+                trained_model_path = "{root}/train_pytorch_model/real_image_model/{dataset}-pretrained/{arch}/checkpoint.pth.tar".format(root=PROJECT_PATH, dataset=dataset, arch=arch)
                 assert os.path.exists(trained_model_path), "{} does not exist!".format(trained_model_path)
             elif dataset == "TinyImageNet":
-                trained_model_path = "{root}/train_pytorch_model/real_image_model/{dataset}@{arch}@*.pth.tar".format(root=PY_ROOT, dataset=dataset, arch=arch)
+                trained_model_path = "{root}/train_pytorch_model/real_image_model/{dataset}@{arch}@*.pth.tar".format(root=PROJECT_PATH, dataset=dataset, arch=arch)
                 trained_model_path_list = list(glob.glob(trained_model_path))
                 assert len(trained_model_path_list)>0, "{} does not exist!".format(trained_model_path)
                 trained_model_path = trained_model_path_list[0]
             else:
                 trained_model_path = "{root}/train_pytorch_model/real_image_model/{dataset}-pretrained/checkpoints/{arch}*.pth".format(
-                    root=PY_ROOT, dataset=dataset, arch=arch)
+                    root=PROJECT_PATH, dataset=dataset, arch=arch)
                 trained_model_path_ls = list(glob.glob(trained_model_path))
                 assert trained_model_path_ls,  "{} does not exist!".format(trained_model_path)
                 trained_model_path = trained_model_path_ls[0]
@@ -75,14 +75,14 @@ class DefensiveModel(nn.Module):
 
         if defense_model == "com_defend":
             self.preprocessor = ComDefend(self.in_channels, 1.0)
-            com_defend_model_path = "{}/train_pytorch_model/adversarial_train/com_defend/{}@*.pth.tar".format(PY_ROOT, dataset)
+            com_defend_model_path = "{}/train_pytorch_model/adversarial_train/com_defend/{}@*.pth.tar".format(PROJECT_PATH, dataset)
             com_defend_model_path = list(glob.glob(com_defend_model_path))[0]
             assert os.path.exists(com_defend_model_path), "{} does not exist!".format(com_defend_model_path)
             log.info('Using com_defend model from {}'.format(com_defend_model_path))
             self.preprocessor.load_state_dict(torch.load(com_defend_model_path, map_location=lambda storage, location: storage)["state_dict"])
             self.preprocessor.eval()
         elif defense_model == "feature_scatter":
-            model_path = "{}/train_pytorch_model/adversarial_train/feature_scatter/{}@{}@*.pth.tar".format(PY_ROOT, dataset, arch)
+            model_path = "{}/train_pytorch_model/adversarial_train/feature_scatter/{}@{}@*.pth.tar".format(PROJECT_PATH, dataset, arch)
             model_path = list(glob.glob(model_path))[0]
             config_feature_scatter = {
                 'train': True,
@@ -102,7 +102,7 @@ class DefensiveModel(nn.Module):
             log.info("Load feature scatter model from {}".format(model_path))
         elif defense_model == "TRADES":
             model_path = '{}/train_pytorch_model/adversarial_train/TRADES/{}@{}@norm_{}*.pth.tar'.format(
-                PY_ROOT, dataset, arch, norm)
+                PROJECT_PATH, dataset, arch, norm)
             log.info("accessing model path {}".format(model_path))
             model_path = list(glob.glob(model_path))[0]
             assert os.path.exists(model_path), "Model {} does not exist!".format(model_path)
@@ -118,7 +118,7 @@ class DefensiveModel(nn.Module):
             self.input_size = self.model.input_size
         elif defense_model == "adv_train":
             model_path = '{}/train_pytorch_model/adversarial_train/adv_train/{}@{}*.pth.tar'.format(
-                PY_ROOT, dataset, arch)
+                PROJECT_PATH, dataset, arch)
             model_path = list(glob.glob(model_path))[0]
             assert os.path.exists(model_path), "Model {} does not exist!".format(model_path)
             self.model = self.make_model(dataset, arch, self.in_channels, CLASS_NUM[dataset],defense_model,
@@ -133,7 +133,7 @@ class DefensiveModel(nn.Module):
             self.input_size = self.model.input_size
         elif defense_model == "adv_train_on_ImageNet":
             model_path = '{}/train_pytorch_model/adversarial_train/adv_train/{}@{}@norm_{}@eps_{}.*'.format(
-                PY_ROOT, dataset, arch, norm, eps)
+                PROJECT_PATH, dataset, arch, norm, eps)
             log.info(model_path)
             model_path = list(glob.glob(model_path))[0]
             assert os.path.exists(model_path), "Model {} does not exist!".format(model_path)
@@ -148,7 +148,7 @@ class DefensiveModel(nn.Module):
             self.input_range = [0, 1]  # [0, 1] or [0, 255]
             self.input_size = [3, 224, 224]
         elif defense_model == "LGD":
-            model_path = "{}/train_pytorch_model/adversarial_train/guided_denoiser/guided_denoiser_{}_{}_LGD.pth.tar".format(PY_ROOT, dataset, arch)
+            model_path = "{}/train_pytorch_model/adversarial_train/guided_denoiser/guided_denoiser_{}_{}_LGD.pth.tar".format(PROJECT_PATH, dataset, arch)
             assert os.path.exists(model_path), "Model file {} does not exist!".format(model_path)
             checkpoint = torch.load(model_path, map_location=lambda storage, location: storage)
             if dataset.startswith("CIFAR"):
@@ -185,7 +185,7 @@ class DefensiveModel(nn.Module):
             self.input_range = [0, 1]
             self.input_size = [IN_CHANNELS[dataset], IMAGE_SIZE[dataset][0], IMAGE_SIZE[dataset][1]]
         elif defense_model == "FGD":
-            model_path = "{}/train_pytorch_model/adversarial_train/guided_denoiser/guided_denoiser_{}_{}_FGD.pth.tar".format(PY_ROOT, dataset, arch)
+            model_path = "{}/train_pytorch_model/adversarial_train/guided_denoiser/guided_denoiser_{}_{}_FGD.pth.tar".format(PROJECT_PATH, dataset, arch)
             assert os.path.exists(model_path), "Model file {} does not exist!".format(model_path)
             checkpoint = torch.load(model_path, map_location=lambda storage, location: storage)
             if dataset.startswith("CIFAR"):
@@ -222,7 +222,7 @@ class DefensiveModel(nn.Module):
             self.input_range = [0, 1]
             self.input_size = [IN_CHANNELS[dataset], IMAGE_SIZE[dataset][0], IMAGE_SIZE[dataset][1]]
         elif defense_model == "guided_denoiser":
-            model_path = "{}/train_pytorch_model/adversarial_train/guided_denoiser/guided_denoiser_{}_{}.pth.tar".format(PY_ROOT, dataset, arch)
+            model_path = "{}/train_pytorch_model/adversarial_train/guided_denoiser/guided_denoiser_{}_{}.pth.tar".format(PROJECT_PATH, dataset, arch)
             assert os.path.exists(model_path), "Model file {} does not exist!".format(model_path)
             checkpoint = torch.load(model_path, map_location=lambda storage, location: storage)
             if dataset.startswith("CIFAR"):
@@ -281,7 +281,7 @@ class DefensiveModel(nn.Module):
             self.input_space = 'RGB'
             self.input_range = [0, 1]
             self.input_size = [IN_CHANNELS[dataset], IMAGE_SIZE[dataset][0], IMAGE_SIZE[dataset][1]]
-            pretrained_model_path = "{root}/train_pytorch_model/adversarial_train/pl_loss/pcl_train_{dataset}@{arch}.pth.tar".format(root=PY_ROOT, dataset=dataset, arch=arch)
+            pretrained_model_path = "{root}/train_pytorch_model/adversarial_train/pl_loss/pcl_train_{dataset}@{arch}.pth.tar".format(root=PROJECT_PATH, dataset=dataset, arch=arch)
             assert os.path.exists(pretrained_model_path), "{} does not exist!".format(pretrained_model_path)
             state_dict = torch.load(pretrained_model_path, map_location=lambda storage, location: storage)["state_dict"]
             filtered_dict = {}
@@ -298,7 +298,7 @@ class DefensiveModel(nn.Module):
             self.input_space = 'RGB'
             self.input_range = [0, 1]
             self.input_size = [IN_CHANNELS[dataset], IMAGE_SIZE[dataset][0], IMAGE_SIZE[dataset][1]]
-            pretrained_model_path = "{root}/train_pytorch_model/adversarial_train/pl_loss/pcl_pgd_adv_train_{dataset}@{arch}.pth.tar".format(root=PY_ROOT, dataset=dataset, arch=arch)
+            pretrained_model_path = "{root}/train_pytorch_model/adversarial_train/pl_loss/pcl_pgd_adv_train_{dataset}@{arch}.pth.tar".format(root=PROJECT_PATH, dataset=dataset, arch=arch)
             assert os.path.exists(pretrained_model_path), "{} does not exist!".format(pretrained_model_path)
             state_dict = torch.load(pretrained_model_path, map_location=lambda storage, location: storage)["state_dict"]
             filtered_dict = {}
@@ -330,7 +330,7 @@ class DefensiveModel(nn.Module):
             self.input_range = [0, 1]
             self.input_size = [IN_CHANNELS[dataset], IMAGE_SIZE[dataset][0], IMAGE_SIZE[dataset][1]]
             pretrained_model_path = "{root}/train_pytorch_model/adversarial_train/feature_denoise/{dataset}@{arch}_{filter_type}_{ksize}.pth.tar".format(
-                root=PY_ROOT, dataset=dataset, arch=arch, filter_type=filter_type, ksize=ksize)
+                root=PROJECT_PATH, dataset=dataset, arch=arch, filter_type=filter_type, ksize=ksize)
             assert os.path.exists(pretrained_model_path), "{} does not exist!".format(pretrained_model_path)
             state_dict = torch.load(pretrained_model_path, map_location=lambda storage, location: storage)["state_dict"]
             log.info("Load feature denoise model from {} done".format(pretrained_model_path))
@@ -362,7 +362,7 @@ class DefensiveModel(nn.Module):
             self.input_range = [0, 1]
             self.input_size = [IN_CHANNELS[dataset], IMAGE_SIZE[dataset][0], IMAGE_SIZE[dataset][1]]
             pretrained_model_path = "{root}/train_pytorch_model/adversarial_train/feature_denoise/pgd_adv_train_{dataset}@{arch}_NonLocal_Filter_3.pth.tar".format(
-                root=PY_ROOT, dataset=dataset, arch=arch)
+                root=PROJECT_PATH, dataset=dataset, arch=arch)
             assert os.path.exists(pretrained_model_path), "{} does not exist!".format(pretrained_model_path)
             state_dict = torch.load(pretrained_model_path, map_location=lambda storage, location: storage)["state_dict"]
             filtered_dict = {}
@@ -506,7 +506,7 @@ class DefensiveModel(nn.Module):
                 self.load_weight_from_ImageNet_adv_train_pth_checkpoint(model,trained_model_path)
                 log.info("loading adv train model {}".format(trained_model_path))
             else:
-                os.environ["TORCH_HOME"] = "{}/train_pytorch_model/real_image_model/ImageNet-pretrained".format(PY_ROOT)
+                os.environ["TORCH_HOME"] = "{}/train_pytorch_model/real_image_model/ImageNet-pretrained".format(PROJECT_PATH)
                 model = pretrainedmodels.__dict__[arch](num_classes=1000, pretrained="imagenet")
         return model
 
@@ -515,7 +515,7 @@ class MetaLearnerModelBuilder(object):
 
     @staticmethod
     def construct_imagenet_model(arch, dataset):
-        os.environ["TORCH_HOME"] = "{}/train_pytorch_model/real_image_model/ImageNet-pretrained".format(PY_ROOT)
+        os.environ["TORCH_HOME"] = "{}/train_pytorch_model/real_image_model/ImageNet-pretrained".format(PROJECT_PATH)
         model = vision_models.__dict__[arch](pretrained=False)
         return model
 

@@ -73,15 +73,15 @@ class TangentAttack(object):
         self.distortion_with_max_queries_all = torch.zeros_like(self.query_all)
         self.best_radius = best_radius
 
-    def get_image_of_target_class(self,dataset_name, target_labels):
+    def get_image_of_target_class(self, dataset_name, target_labels):
 
         images = []
         for label in target_labels:  # length of target_labels is 1
             if dataset_name == "ImageNet":
-                dataset = ImageNetDataset(IMAGE_DATA_ROOT[dataset_name],label.item(), "validation")
+                dataset = ImageNetDataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
             elif dataset_name == "CIFAR-10":
                 dataset = CIFAR10Dataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
-            elif dataset_name=="CIFAR-100":
+            elif dataset_name == "CIFAR-100":
                 dataset = CIFAR100Dataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
             elif dataset_name == "TinyImageNet":
                 dataset = TinyImageNetDataset(IMAGE_DATA_ROOT[dataset_name], label.item(), "validation")
@@ -90,23 +90,30 @@ class TangentAttack(object):
             image = image.unsqueeze(0)
             if dataset_name == "ImageNet" and self.model.input_size[-1] != 299:
                 image = F.interpolate(image,
-                                       size=(self.model.input_size[-2], self.model.input_size[-1]), mode='bilinear',
-                                       align_corners=False)
+                                      size=(self.model.input_size[-2], self.model.input_size[-1]), mode='bilinear',
+                                      align_corners=False)
             with torch.no_grad():
                 logits = self.model(image.cuda())
-            while logits.max(1)[1].item() != label.item():
+            max_recursive_loop_limit = 100
+            loop_count = 0
+            while logits.max(1)[1].item() != label.item() and loop_count < max_recursive_loop_limit:
+                loop_count += 1
                 index = np.random.randint(0, len(dataset))
                 image, true_label = dataset[index]
                 image = image.unsqueeze(0)
                 if dataset_name == "ImageNet" and self.model.input_size[-1] != 299:
                     image = F.interpolate(image,
-                                       size=(self.model.input_size[-2], self.model.input_size[-1]), mode='bilinear',
-                                       align_corners=False)
+                                          size=(self.model.input_size[-2], self.model.input_size[-1]), mode='bilinear',
+                                          align_corners=False)
                 with torch.no_grad():
                     logits = self.model(image.cuda())
+
+            if loop_count == max_recursive_loop_limit:
+               return None
+
             assert true_label == label.item()
             images.append(torch.squeeze(image))
-        return torch.stack(images) # B,C,H,W
+        return torch.stack(images)  # B,C,H,W
 
     def decision_function(self, images, true_labels, target_labels):
         images = torch.clamp(images, min=self.clip_min, max=self.clip_max).cuda()
@@ -309,47 +316,8 @@ class TangentAttack(object):
         radius = dist.item() / np.sqrt(cur_iter)
         num_evals = 0
         while True:
-            # x_projection = calculate_projection_of_x_original(x_original.view(-1),x_boundary.view(-1),normal_vector.view(-1))
-            # if torch.norm(x_projection.view(-1) - x_original.view(-1),p=self.ord).item() <= radius:
-            #     log.info("projection point lies inside ball! reduce radius from {:.3f} to {:.3f}".format(radius, radius/2.0))
-            #     radius /= 2.0
-            #     continue
-            # else:
             tangent_finder = TangentFinder(x_original.view(-1), x_boundary.view(-1), radius, normal_vector.view(-1),
                                            norm="l2")
-            tangent_point = tangent_finder.compute_tangent_point()
-            if self.verify_tangent_point:
-                log.info("verifying tagent point")
-                another_tangent_point = solve_tangent_point(x_original.view(-1).detach().cpu().numpy(), x_boundary.view(-1).detach().cpu().numpy(),
-                                    normal_vector.view(-1).detach().cpu().numpy(), radius, clip_min=self.clip_min,clip_max=self.clip_max)
-                if isinstance(another_tangent_point, np.ndarray):
-                    another_tangent_point = torch.from_numpy(another_tangent_point).type_as(tangent_point).to(tangent_point.device)
-                difference = tangent_point - another_tangent_point
-                log.info("Difference max: {:.4f} mean: {:.4f} sum: {:.4f} L2 norm: {:.4f}".format(difference.max().item(),
-                                                                                                  difference.mean().item(),
-                                                                                                  difference.sum().item(),
-                                                                                                  torch.norm(difference)))
-            tangent_point = tangent_point.view_as(x_original).type(x_original.dtype)
-            success = self.decision_function(tangent_point[None], true_labels, target_labels)
-            num_evals += 1
-            if bool(success[0].item()):
-               break
-            radius /= 2.0
-        tangent_point = torch.clamp(tangent_point, self.clip_min, self.clip_max)
-        return tangent_point, num_evals
-
-
-    def log_geometric_progression_for_tangent_point(self, x_original, x_boundary, normal_vector, true_labels, target_labels, dist, cur_iter):
-        """
-        Geometric progression to search for stepsize.
-        Keep decreasing stepsize by half until reaching
-        the desired side of the boundary,
-        """
-        radius = dist.item() / np.log2(cur_iter+1)
-        num_evals = 0
-        while True:
-
-            tangent_finder = TangentFinder(x_original.view(-1), x_boundary.view(-1), radius, normal_vector.view(-1), norm="l2")
             tangent_point = tangent_finder.compute_tangent_point()
             if self.verify_tangent_point:
                 log.info("verifying tagent point")
@@ -436,7 +404,7 @@ class TangentAttack(object):
         perturbed, num_eval = self.initialize(images, target_images, true_labels, target_labels)
         # log.info("after initialize")
         query += num_eval
-        dist =  torch.norm((perturbed - images).view(batch_size, -1), self.ord, 1)
+        dist = torch.norm((perturbed - images).view(batch_size, -1), self.ord, 1)
         working_ind = torch.nonzero(dist > self.epsilon).view(-1)
         success_stop_queries[working_ind] = query[working_ind]
         for inside_batch_index, index_over_all_images in enumerate(batch_image_positions):
@@ -472,23 +440,18 @@ class TangentAttack(object):
             # search step size.
             if self.stepsize_search == 'geometric_progression':
                 # find step size.
-                # if not args.ablation_study: FIXME
-                perturbed_Tagent, num_evals = self.geometric_progression_for_tangent_point(images, perturbed, gradf,
+                if not args.ablation_study: # FIXME
+                    perturbed_Tagent, num_evals = self.geometric_progression_for_tangent_point(images, perturbed, gradf,
                                                                                        true_labels, target_labels,
                                                                                        dist, cur_iter)
-                # else:  FIXME
-                #     if args.fixed_radius:
-                #         perturbed_Tagent, success = self.fixed_radius_for_tangent_point(images, perturbed, gradf, true_labels,
-                #                                                                                    target_labels, fixed_radius)
-                #         num_evals = torch.zeros_like(query)
-                #     elif args.binary_search_radius:
-                #         perturbed_Tagent, num_evals = self.binary_search_for_radius_and_tangent_point(images, perturbed, gradf,
-                #                                                                                       true_labels, target_labels, dist)
-                #     elif args.log2_radius:
-                #         perturbed_Tagent, num_evals = self.log_geometric_progression_for_tangent_point(images, perturbed, gradf,
-                #                                                                            true_labels, target_labels,
-                #                                                                            dist, cur_iter)
-
+                else:
+                    if args.fixed_radius:
+                        perturbed_Tagent, success = self.fixed_radius_for_tangent_point(images, perturbed, gradf, true_labels,
+                                                                                                   target_labels, fixed_radius)
+                        num_evals = torch.zeros_like(query)
+                    elif args.binary_search_radius:
+                        perturbed_Tagent, num_evals = self.binary_search_for_radius_and_tangent_point(images, perturbed, gradf,
+                                                                                                      true_labels, target_labels, dist)
                 query += num_evals
                 # perturbed_HSJA = self.geometric_progression_for_HSJA(perturbed, true_labels, target_labels, gradf, dist, cur_iter)
                 # dist_tangent = torch.norm((perturbed_Tagent - images).view(batch_size, -1), self.ord, 1).item()
@@ -578,6 +541,9 @@ class TangentAttack(object):
                     raise NotImplementedError('Unknown target_type: {}'.format(args.target_type))
 
                 target_images = self.get_image_of_target_class(self.dataset_name,target_labels)
+                if target_images is None:
+                    log.info("{}-th image cannot get a valid target class image to initialize!".format(batch_index+1))
+                    continue
             else:
                 target_labels = None
                 target_images = None
@@ -737,8 +703,6 @@ if __name__ == "__main__":
                 log_file_path = args.exp_dir + "/run_{}_binary_search_radius.log".format(args.arch)
             elif args.fixed_radius:
                 log_file_path = args.exp_dir + "/run_{}_fixed_radius.log".format(args.arch)
-            elif args.log2_radius:
-                log_file_path = args.exp_dir + "/run_{}_log2_geometric_progression_radius.log".format(args.arch)
         else:
             log_file_path = osp.join(args.exp_dir, 'run_{}.log'.format(args.arch))
 
@@ -777,8 +741,6 @@ if __name__ == "__main__":
                 save_result_path = args.exp_dir + "/{}_binary_search_radius_result.json".format(arch)
             elif args.fixed_radius:
                 save_result_path = args.exp_dir + "/{}_fixed_radius_result.json".format(arch)
-            elif args.log2_radius:
-                save_result_path = args.exp_dir + "/{}_log2_geometric_progression_radius_result.json".format(arch)
         else:
             save_result_path = args.exp_dir + "/{}_result.json".format(arch)
         if os.path.exists(save_result_path):

@@ -7,7 +7,7 @@ import sys
 sys.path.append("/home1/machen/meta_perturbations_black_box_attack")
 from dataset.standard_model import StandardModel
 import glog as log
-from config import PY_ROOT, MODELS_TRAIN_STANDARD, MODELS_TEST_STANDARD
+from config import PROJECT_PATH, MODELS_TRAIN_STANDARD, MODELS_TEST_STANDARD
 from cifar_models_myself import *
 from dataset.dataset_loader_maker import DataLoaderMaker
 from advertorch.attacks import LinfPGDAttack, L2PGDAttack, FGSM, MomentumIterativeAttack
@@ -66,7 +66,7 @@ def set_log_file(fname):
     os.dup2(tee.stdin.fileno(), sys.stderr.fileno())
 
 def generate(datasetname, batch_size):
-    save_dir_path = "{}/data_adv_defense/guided_denoiser".format(PY_ROOT)
+    save_dir_path = "{}/data_adv_defense/guided_denoiser".format(PROJECT_PATH)
     os.makedirs(save_dir_path, exist_ok=True)
     set_log_file(save_dir_path + "/generate_{}.log".format(datasetname))
     data_loader = DataLoaderMaker.get_img_label_data_loader(datasetname, batch_size, is_train=True)
