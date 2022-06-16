@@ -8,13 +8,16 @@ which is published in NeurIPS 2021.
 We kindly ask anybody who uses this code to cite the following bibtex:
 
 ```
-@inproceedings{
-    ma2021finding,
-    title={Finding Optimal Tangent Points for Reducing Distortions of Hard-label Attacks},
-    author={Chen Ma and Xiangyu Guo and Li Chen and Jun-Hai Yong and Yisen Wang},
-    booktitle={Thirty-Fifth Conference on Neural Information Processing Systems},
-    year={2021},
-    url={https://openreview.net/forum?id=g0wang64Zjd}
+@inproceedings{ma2021finding,
+ author = {Ma, Chen and Guo, Xiangyu and Chen, Li and Yong, Jun-Hai and Wang, Yisen},
+ booktitle = {Advances in Neural Information Processing Systems},
+ editor = {M. Ranzato and A. Beygelzimer and Y. Dauphin and P.S. Liang and J. Wortman Vaughan},
+ pages = {19288--19300},
+ publisher = {Curran Associates, Inc.},
+ title = {Finding Optimal Tangent Points for Reducing Distortions of Hard-label Attacks},
+ url = {https://proceedings.neurips.cc/paper/2021/file/a113c1ecd3cace2237256f4c712f61b5-Paper.pdf},
+ volume = {34},
+ year = {2021}
 }
 ```
 
@@ -46,7 +49,7 @@ This folder can be downloaded from [https://drive.google.com/file/d/1NkfMPShB9dU
 The folder of `train_pytorch_model` contains the pretrained weights of target models, which can be downloaded from [https://drive.google.com/file/d/1VfCdU14nAhOvumXTIA-B8OC6XwGYvUml/view?usp=sharing](https://drive.google.com/file/d/1VfCdU14nAhOvumXTIA-B8OC6XwGYvUml/view?usp=sharing).
 
 In the attack, all logs are dumped to `logs` folder. The results of attacks are also written into the `logs` folder, which use the `.json` format.
-I have uploaded the compressed zip file of the experimental results onto [https://drive.google.com/file/d/1vng1Gs6YgZs3PGMvfJb-exRRIsrbo5vx/view?usp=sharing](https://drive.google.com/file/d/1vng1Gs6YgZs3PGMvfJb-exRRIsrbo5vx/view?usp=sharing),
+I have uploaded the compressed zip file of the experimental results onto [https://drive.google.com/file/d/1JswjvdDpaWMU7keGLA5HaVnZkYP3LpUO/view?usp=sharing](https://drive.google.com/file/d/1JswjvdDpaWMU7keGLA5HaVnZkYP3LpUO/view?usp=sharing),
 so that you can directly use the results of baseline methods without repeatedly running experiments.
 
 # Attack Command
@@ -97,6 +100,6 @@ The pre-trained weights of the target models can be downloaded from [https://dri
 
 Before running experiments, please download above files and uncompress them to this project's root path.
 
-Also, I have uploaded the compressed zip format file that contains logs and results onto [https://drive.google.com/file/d/1JswjvdDpaWMU7keGLA5HaVnZkYP3LpUO/view?usp=sharing](https://drive.google.com/file/d/1JswjvdDpaWMU7keGLA5HaVnZkYP3LpUO/view?usp=sharing).
+Also, I have uploaded the compressed zip format file that contains running logs and experimental results onto [https://drive.google.com/file/d/1JswjvdDpaWMU7keGLA5HaVnZkYP3LpUO/view?usp=sharing](https://drive.google.com/file/d/1JswjvdDpaWMU7keGLA5HaVnZkYP3LpUO/view?usp=sharing).
 
 You can use these experimental results directly without spending a lot of time to re-run the experiments.
